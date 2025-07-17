@@ -487,10 +487,13 @@ app.get("/progress", async (c) => {
                   window.location.href = '/';
                 }, 3000);
               }
-            } catch (error) {
-              console.error('Error checking for job:', error);
-              setTimeout(checkForLatestJob, 5000);
-            }
+console.error('Error checking for job:', error);
+checkCount++;
+if (checkCount < maxChecks) {
+  setTimeout(checkForLatestJob, 5000);
+} else {
+  document.getElementById('status').textContent = 'An error occurred while checking for the job. Please check the dashboard.';
+}
           }
           
           // Start checking after a short delay
