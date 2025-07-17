@@ -9,7 +9,10 @@
     "start": "wrangler dev",
     "cf-typegen": "wrangler types",
     "generate": "drizzle-kit generate:sqlite --schema=src/schema.ts",
-    "up": "drizzle-kit up:sqlite --schema=src/schema.ts"
+    "up": "drizzle-kit up:sqlite --schema=src/schema.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "drizzle-orm": "^0.31.2",
@@ -24,6 +27,7 @@
     "@types/service-worker-mock": "^2.0.1",
     "dotenv": "^16.4.5",
     "drizzle-kit": "^0.22.7",
+    "vitest": "^3.2.4",
     "wrangler": "^3.61.0"
   },
   "overrides": {
