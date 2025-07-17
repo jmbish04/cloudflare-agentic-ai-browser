@@ -231,7 +231,7 @@ app.get("/", async (c) => {
 
 // Job detail page
 app.get("/job/:id", async (c) => {
-  const id = parseInt(c.req.param("id"));
+const id = parseInt(c.req.param("id"), 10);
   const db = new Database(c.env);
   const job = await db.getJob(id);
   
