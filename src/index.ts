@@ -158,7 +158,7 @@ app.get("/", async (c) => {
         </div>
 
         <div class="jobs-container">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+<div class="jobs-list-header">
             <h2>Job History</h2>
             <button onclick="window.location.reload()" class="refresh-btn">Refresh</button>
           </div>
