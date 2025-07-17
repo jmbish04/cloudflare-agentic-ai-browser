@@ -457,8 +457,10 @@ app.get("/progress", async (c) => {
           }
         </style>
         <script>
-          let checkCount = 0;
-          const maxChecks = 60; // Check for 5 minutes
+const POLLING_INTERVAL_MS = 5000;
+const JOB_CREATION_LOOKBEHIND_MS = 120000; // 2 minutes
+const MAX_CHECKS = 60; // ~5 minutes timeout
+let checkCount = 0;
           
           async function checkForLatestJob() {
             try {
