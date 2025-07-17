@@ -16,10 +16,10 @@ export class Database {
       .values({
         goal,
         startingUrl: baseUrl,
-        status: "running",
+        status: "pending",
       })
       .returning({ id: jobs.id, createdAt: jobs.createdAt })
-      .all();
+      .get();
     return job;
   }
 
@@ -39,6 +39,25 @@ export class Database {
       .where(eq(jobs.id, id));
   }
 
+  async getJob(id: number) {
+    const job = await this.db
+      .select()
+      .from(jobs)
+      .where(eq(jobs.id, id))
+      .get();
+    return job;
+  }
+
+  async updateJobStatus(id: number, status: string) {
+    await this.db
+      .update(jobs)
+      .set({
+        status,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(jobs.id, id));
+  }
+
   async finalizeJob(
     id: number,
     finalAnswer: string,
@@ -48,10 +67,11 @@ export class Database {
   ) {
     await this.db.update(jobs).set({
       output: finalAnswer,
-      status: "success",
+      status: "completed",
       messages: JSON.stringify(messages),
       log: logs.join("\n"),
       completedAt,
-    });
+      updatedAt: new Date().toISOString(),
+    }).where(eq(jobs.id, id));
   }
 }

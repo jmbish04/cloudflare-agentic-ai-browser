@@ -8,23 +8,89 @@ import { Database } from "./db";
 
 const handler = {
   async fetch(request, env): Promise<Response> {
-    const id = env.BROWSER.idFromName("browser");
-    const obj = env.BROWSER.get(id);
-
     const { success } = await env.RATE_LIMITER.limit({ key: "/" });
     if (!success) {
       return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
     }
 
-    if (request.method !== "POST") {
-      return new Response("Please use POST request instead");
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    // Handle API routes
+    if (path.startsWith('/api/jobs')) {
+      const db = new Database(env);
+      
+      if (request.method === 'POST' && path === '/api/jobs') {
+        // Create new job
+        const data: { baseUrl?: string; goal?: string } = await request.json();
+        const baseUrl = data.baseUrl ?? "https://bubble.io";
+        const goal = data.goal ?? "Extract pricing model for this company";
+        
+        const job = await db.insertJob(goal, baseUrl);
+        
+        // Start job execution asynchronously
+        const id = env.BROWSER.idFromName("browser");
+        const obj = env.BROWSER.get(id);
+        
+        // Don't await this - let it run in the background
+        obj.fetch(new Request(request.url, {
+          method: 'POST',
+          body: JSON.stringify({ jobId: job.id, baseUrl, goal }),
+          headers: { 'Content-Type': 'application/json' }
+        }));
+        
+        return new Response(JSON.stringify({ 
+          jobId: job.id,
+          status: 'pending',
+          createdAt: job.createdAt
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
+      if (request.method === 'GET' && path.match(/^\/api\/jobs\/\d+$/)) {
+        // Get job status
+        const jobId = parseInt(path.split('/')[3]);
+        const job = await db.getJob(jobId);
+        
+        if (!job) {
+          return new Response(JSON.stringify({ error: 'Job not found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        
+        return new Response(JSON.stringify({
+          jobId: job.id,
+          status: job.status,
+          goal: job.goal,
+          startingUrl: job.startingUrl,
+          output: job.output,
+          createdAt: job.createdAt,
+          updatedAt: job.updatedAt,
+          completedAt: job.completedAt,
+          log: job.log
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
+      return new Response('Method not allowed', { status: 405 });
     }
 
-    const response = await obj.fetch(request);
-    const { readable, writable } = new TransformStream();
-    response.body.pipeTo(writable);
+    // Legacy endpoint - redirect to new API for job execution
+    if (request.method === "POST") {
+      const id = env.BROWSER.idFromName("browser");
+      const obj = env.BROWSER.get(id);
 
-    return new Response(readable, response);
+      const response = await obj.fetch(request);
+      const { readable, writable } = new TransformStream();
+      response.body.pipeTo(writable);
+
+      return new Response(readable, response);
+    }
+    
+    return new Response("Please use POST request or API endpoints", { status: 400 });
   },
 } satisfies ExportedHandler<Env>;
 
@@ -54,6 +120,16 @@ export class Browser {
   }
 
   async fetch(request: Request) {
+    const data: { baseUrl?: string; goal?: string; jobId?: number } = await request.json();
+    
+    // Check if this is a new API request with jobId
+    if (data.jobId) {
+      // This is an async job execution request
+      await this.executeJob(data.jobId, data.baseUrl!, data.goal!);
+      return new Response("Job execution started", { status: 200 });
+    }
+
+    // Legacy streaming response format
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const textEncoder = new TextEncoder();
@@ -68,7 +144,6 @@ export class Browser {
       writer.write(textEncoder.encode(`${fullMsg}\n`));
     };
 
-    const data: { baseUrl?: string; goal?: string } = await request.json();
     const baseUrl = data.baseUrl ?? "https://bubble.io";
     const goal = data.goal ?? "Extract pricing model for this company";
 
@@ -205,6 +280,150 @@ export class Browser {
     );
 
     return new Response(readable);
+  }
+
+  private async executeJob(jobId: number, baseUrl: string, goal: string) {
+    try {
+      await this.db.updateJobStatus(jobId, "running");
+
+      // use the current date and time to create a folder structure for R2
+      const nowDate = new Date();
+      const coeff = 1000 * 60 * 5;
+      const roundedDate = new Date(Math.round(nowDate.getTime() / coeff) * coeff).toString();
+      const folder =
+        roundedDate.split(" GMT")[0] + "_" + baseUrl.replace("https://", "").replace("http://", "");
+
+      // If there's a browser session open, re-use it
+      if (!this.browser || !this.browser.isConnected()) {
+        console.log(`Starting new browser instance for job ${jobId}`);
+        try {
+          this.browser = await puppeteer.launch(this.env.MYBROWSER);
+        } catch (e) {
+          console.log(`Could not start browser instance. Error: ${e}`);
+          await this.db.updateJobStatus(jobId, "failed");
+          return;
+        }
+      }
+
+      // Reset keptAlive after each call to the DO
+      this.keptAliveInSeconds = 0;
+
+      const page = await this.browser.newPage();
+      await page.setViewport({ width, height });
+      page.setDefaultNavigationTimeout(10000);
+      page.setDefaultTimeout(10000);
+      await page.goto(baseUrl);
+
+      const initialHtml = await getCleanHtml(page);
+      console.log(`Page ${baseUrl} loaded for job ${jobId}. HTML chars: ${initialHtml.length}`);
+
+      const messages: ChatCompletionMessageParam[] = [];
+      messages.push({
+        role: "system",
+        content: systemPrompt,
+      });
+      messages.push({
+        role: "user",
+        content: `Goal: ${goal}\n${initialHtml}`,
+      });
+
+      const logs: string[] = [];
+      const startingTs: number = +new Date();
+
+      const log = (msg: string) => {
+        const elapsed = +new Date() - startingTs;
+        const fullMsg = `[${elapsed}ms]: ${msg}`;
+        logs.push(fullMsg);
+        console.log(`Job ${jobId}: ${fullMsg}`);
+      };
+
+      let completion: ChatCompletion;
+
+      do {
+        const messagesSanitized = removeHtmlsFromMessages(messages);
+
+        const r2Obj = await this.storeScreenshot(page, folder);
+        log(`Stored screenshot at ${r2Obj.key}. Thinking about next step...`);
+
+        completion = await this.openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: messagesSanitized,
+          tools,
+        });
+        const newMessage = completion.choices[0].message;
+
+        // Take just one. Hack to prevent parallel function calling
+        if (newMessage.tool_calls && newMessage.tool_calls?.length > 0) {
+          newMessage.tool_calls = [newMessage.tool_calls[0]];
+        }
+
+        messages.push(newMessage);
+
+        // Update job with current progress
+        await this.db.updateJob(jobId, messages, logs, new Date().toISOString());
+
+        const toolCalls = completion.choices[0].message.tool_calls || [];
+
+        for (const toolCall of toolCalls) {
+          const functionCall = toolCall.function;
+          const arg = functionCall?.arguments;
+          const parsedArg = JSON.parse(arg!);
+
+          log(`AI: ${parsedArg.reasoning} (${functionCall?.name} on ${parsedArg.selector})`);
+
+          try {
+            switch (functionCall?.name) {
+              case "click":
+                await page.click(parsedArg.selector, {});
+                break;
+              case "type":
+                await page.type(parsedArg.selector, parsedArg.value);
+                break;
+              case "select":
+                await page.select(parsedArg.selector, parsedArg.value);
+                break;
+            }
+
+            log(`Action ${functionCall?.name} on ${parsedArg.selector} succeeded`);
+
+            messages.push({
+              role: "tool",
+              content: await getCleanHtml(page),
+              tool_call_id: toolCall.id,
+            });
+          } catch (error) {
+            log(`AI Error: ${error.message}`);
+            messages.push({
+              role: "tool",
+              content: `Error: ${error.message}\n${await getCleanHtml(page)}`,
+              tool_call_id: toolCall.id,
+            });
+          }
+        }
+      } while (!completion || completion?.choices[0].message.tool_calls?.[0]);
+
+      const finalAnswer = completion?.choices[0].message.content;
+      log(`Final Answer: ${finalAnswer}`);
+
+      await this.db.finalizeJob(jobId, finalAnswer, messages, logs, new Date().toISOString());
+
+      // Close tab when there is no more work to be done on the page
+      await page.close();
+
+      // Reset keptAlive after performing tasks to the DO.
+      this.keptAliveInSeconds = 0;
+
+      // set the first alarm to keep DO alive
+      let currentAlarm = await this.storage.getAlarm();
+      if (currentAlarm == null) {
+        console.log(`Browser DO: setting alarm`);
+        const TEN_SECONDS = 10 * 1000;
+        await this.storage.setAlarm(Date.now() + TEN_SECONDS);
+      }
+    } catch (error) {
+      console.error(`Job ${jobId} failed:`, error);
+      await this.db.updateJobStatus(jobId, "failed");
+    }
   }
 
   private async storeScreenshot(page: puppeteer.Page, folder: string) {
