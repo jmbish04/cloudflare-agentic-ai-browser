@@ -1,0 +1,50 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "cloudflare-agentic-ai-browser"
+main = "src/index.ts"
+compatibility_date = "2024-06-14"
+compatibility_flags = [ "nodejs_compat"]
+
+browser = { binding = "MYBROWSER" }
+
+# Bind an R2 Bucket
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "screenshots"
+preview_bucket_name = "screenshots-test"
+
+# Binding to a Durable Object
+[[durable_objects.bindings]]
+name = "BROWSER"
+class_name = "Browser"
+
+[[migrations]]
+tag = "v1" 
+new_classes = ["Browser"]
+
+[vars]
+ACCOUNT_ID="fa3e82d8258ac121c26085c2a5952780" # replace with yours
+SERVICE_NAME = "cloudflare-agentic-ai-browser"
+
+# Baselime integration
+logpush = true
+tail_consumers = [
+  { service = "cloudflare-agentic-ai-browser-tail", environment = "undefined" }
+]
+
+[[d1_databases]]
+binding = "DB" 
+database_name = "ai-agent-jobs"
+database_id = "2ca639bf-b86c-4c0f-a172-42f9ccb57875"
+
+# The rate limiting API is in open beta.
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+# An identifier you define, that is unique to your Cloudflare account.
+# Must be an integer.
+namespace_id = "1001"
+
+# Limit: the number of tokens allowed within a given period in a single
+# Cloudflare location
+# Period: the duration of the period, in seconds. Must be either 10 or 60
+simple = { limit = 2, period = 10 }
