@@ -12,19 +12,17 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.31.2",
+    "hono": "^4.8.5",
     "langsmith": "^0.1.31",
     "openai": "^4.51.0"
   },
   "devDependencies": {
     "@cloudflare/puppeteer": "^0.0.11",
     "@cloudflare/workers-types": "^4.20240614.0",
-    "@types/node": "^20.5.7",
+    "@types/node": "20.8.3",
     "@types/service-worker-mock": "^2.0.1",
     "dotenv": "^16.4.5",
     "drizzle-kit": "^0.22.7",
     "wrangler": "^3.61.0"
-  },
-  "overrides": {
-    "@types/node": "20.8.3"
   }
 }

@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/d1";
 import { jobs } from "./schema";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { ChatCompletionMessageParam } from "openai/resources";
 
 export class Database {
@@ -53,5 +53,13 @@ export class Database {
       log: logs.join("\n"),
       completedAt,
     });
+  }
+
+  async getAllJobs() {
+    return await this.db.select().from(jobs).orderBy(desc(jobs.createdAt)).all();
+  }
+
+  async getJob(id: number) {
+    return await this.db.select().from(jobs).where(eq(jobs.id, id)).get();
   }
 }
