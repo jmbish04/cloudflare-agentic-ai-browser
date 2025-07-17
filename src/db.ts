@@ -20,7 +20,7 @@ export class Database {
       })
       .returning({ id: jobs.id, createdAt: jobs.createdAt })
       .all();
-    return job;
+    return job[0];
   }
 
   async updateJob(
@@ -52,6 +52,31 @@ export class Database {
       messages: JSON.stringify(messages),
       log: logs.join("\n"),
       completedAt,
-    });
+    }).where(eq(jobs.id, id));
+  }
+
+  async getAllJobs() {
+    return await this.db
+      .select({
+        id: jobs.id,
+        goal: jobs.goal,
+        startingUrl: jobs.startingUrl,
+        status: jobs.status,
+        createdAt: jobs.createdAt,
+        completedAt: jobs.completedAt,
+        output: jobs.output,
+        log: jobs.log,
+      })
+      .from(jobs)
+      .orderBy(jobs.createdAt);
+  }
+
+  async getJob(id: number) {
+    const result = await this.db
+      .select()
+      .from(jobs)
+      .where(eq(jobs.id, id))
+      .limit(1);
+    return result[0] || null;
   }
 }

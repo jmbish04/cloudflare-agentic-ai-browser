@@ -5,32 +5,162 @@ import { tools } from "./tools";
 import { systemPrompt } from "./prompts";
 import { getCleanHtml, removeHtmlsFromMessages } from "./utils";
 import { Database } from "./db";
+import { Hono } from "hono";
+import { dashboardTemplate } from "./templates/dashboard";
+import { jobDetailTemplate } from "./templates/job-detail";
+import { parseIntSafe, validateJobRequest } from "./utils/validation";
+import { 
+  BROWSER_WIDTH, 
+  BROWSER_HEIGHT, 
+  KEEP_BROWSER_ALIVE_IN_SECONDS, 
+  ALARM_INTERVAL_SECONDS 
+} from "./constants";
+
+const app = new Hono<{ Bindings: Env }>();
+
+// Frontend routes
+app.get("/", async (c) => {
+  const db = new Database(c.env);
+  const jobs = await db.getAllJobs();
+  return c.html(dashboardTemplate(jobs));
+});
+
+// Job detail page
+app.get("/job/:id", async (c) => {
+  const idParam = c.req.param("id");
+  const id = parseIntSafe(idParam);
+  
+  if (id === null) {
+    return c.html("Invalid job ID", 400);
+  }
+  
+  const db = new Database(c.env);
+  const job = await db.getJob(id);
+  
+  if (!job) {
+    return c.html("Job not found", 404);
+  }
+  
+  return c.html(jobDetailTemplate(job));
+});
+
+// API routes
+
+// Get all jobs
+app.get("/api/jobs", async (c) => {
+  const db = new Database(c.env);
+  const jobs = await db.getAllJobs();
+  return c.json(jobs);
+});
+
+// Get specific job
+app.get("/api/jobs/:id", async (c) => {
+  const idParam = c.req.param("id");
+  const id = parseIntSafe(idParam);
+  
+  if (id === null) {
+    return c.json({ error: "Invalid job ID" }, 400);
+  }
+  
+  const db = new Database(c.env);
+  const job = await db.getJob(id);
+  
+  if (!job) {
+    return c.json({ error: "Job not found" }, 404);
+  }
+  
+  return c.json(job);
+});
+
+// Create new job (frontend API)
+app.post("/api/jobs", async (c) => {
+  try {
+    const data = await c.req.json();
+    const validation = validateJobRequest(data);
+    
+    if (!validation.isValid) {
+      return c.json({ error: validation.error }, 400);
+    }
+
+    const { baseUrl, goal } = data;
+    
+    // Create job in database first
+    const db = new Database(c.env);
+    const job = await db.insertJob(goal, baseUrl);
+    
+    // Start browser automation asynchronously
+    c.executionCtx.waitUntil(
+      processBrowserJob(c.env, job.id, baseUrl, goal)
+    );
+    
+    // Return the jobId immediately to prevent race condition
+    return c.json({ 
+      success: true, 
+      jobId: job.id,
+      message: "Job created and started"
+    });
+  } catch (error) {
+    console.error("Error creating job:", error);
+    return c.json({ error: "Failed to create job" }, 500);
+  }
+});
+
+// Legacy API endpoint for backwards compatibility
+app.post("/", async (c) => {
+  const id = c.env.BROWSER.idFromName("browser");
+  const obj = c.env.BROWSER.get(id);
+
+  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
+  if (!success) {
+    return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
+  }
+
+  const response = await obj.fetch(c.req.raw);
+  const { readable, writable } = new TransformStream();
+  response.body?.pipeTo(writable);
+
+  return new Response(readable, response);
+});
+
+// Handle other methods
+app.all("*", (c) => {
+  if (c.req.method !== "GET" && c.req.method !== "POST") {
+    return c.text("Method not allowed", 405);
+  }
+  return c.text("Not found", 404);
+});
+
+// Separate function to process browser job asynchronously
+async function processBrowserJob(env: Env, jobId: number, baseUrl: string, goal: string) {
+  const id = env.BROWSER.idFromName("browser");
+  const obj = env.BROWSER.get(id);
+  
+  try {
+    // Create a request for the browser automation
+    const request = new Request("http://localhost", {
+      method: "POST",
+      body: JSON.stringify({ baseUrl, goal, jobId }),
+      headers: { "Content-Type": "application/json" }
+    });
+    
+    await obj.fetch(request);
+  } catch (error) {
+    console.error(`Error processing job ${jobId}:`, error);
+    // Update job status to failed
+    const db = new Database(env);
+    await db.updateJob(jobId, [], [`Error: ${error.message}`], new Date().toISOString());
+  }
+}
 
 const handler = {
   async fetch(request, env): Promise<Response> {
-    const id = env.BROWSER.idFromName("browser");
-    const obj = env.BROWSER.get(id);
-
-    const { success } = await env.RATE_LIMITER.limit({ key: "/" });
-    if (!success) {
-      return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
-    }
-
-    if (request.method !== "POST") {
-      return new Response("Please use POST request instead");
-    }
-
-    const response = await obj.fetch(request);
-    const { readable, writable } = new TransformStream();
-    response.body.pipeTo(writable);
-
-    return new Response(readable, response);
+    return app.fetch(request, env);
   },
 } satisfies ExportedHandler<Env>;
 
-const width = 1920;
-const height = 1080;
-const KEEP_BROWSER_ALIVE_IN_SECONDS = 180;
+const width = BROWSER_WIDTH;
+const height = BROWSER_HEIGHT;
+const KEEP_BROWSER_ALIVE_IN_SECONDS_CONSTANT = KEEP_BROWSER_ALIVE_IN_SECONDS;
 
 export class Browser {
   private browser: puppeteer.Browser;
@@ -68,11 +198,16 @@ export class Browser {
       writer.write(textEncoder.encode(`${fullMsg}\n`));
     };
 
-    const data: { baseUrl?: string; goal?: string } = await request.json();
+    const data: { baseUrl?: string; goal?: string; jobId?: number } = await request.json();
     const baseUrl = data.baseUrl ?? "https://bubble.io";
     const goal = data.goal ?? "Extract pricing model for this company";
-
-    const { id } = await this.db.insertJob(goal, baseUrl);
+    
+    // Use provided jobId or create new job (backwards compatibility)
+    let jobId = data.jobId;
+    if (!jobId) {
+      const job = await this.db.insertJob(goal, baseUrl);
+      jobId = job.id;
+    }
 
     // use the current date and time to create a folder structure for R2
     const nowDate = new Date();
@@ -137,7 +272,7 @@ export class Browser {
 
           messages.push(newMessage);
 
-          // await this.db.updateJob(id, messages, logs, new Date().toISOString());
+          await this.db.updateJob(jobId!, messages, logs, new Date().toISOString());
 
           const toolCalls = completion.choices[0].message.tool_calls || [];
 
@@ -184,7 +319,7 @@ export class Browser {
         const finalAnswer = completion?.choices[0].message.content;
         log(`Final Answer: ${finalAnswer}`);
 
-        await this.db.finalizeJob(id, finalAnswer, messages, logs, new Date().toISOString());
+        await this.db.finalizeJob(jobId!, finalAnswer, messages, logs, new Date().toISOString());
 
         // Close tab when there is no more work to be done on the page
         await page.close();
@@ -196,7 +331,7 @@ export class Browser {
         let currentAlarm = await this.storage.getAlarm();
         if (currentAlarm == null) {
           console.log(`Browser DO: setting alarm`);
-          const TEN_SECONDS = 10 * 1000;
+          const TEN_SECONDS = ALARM_INTERVAL_SECONDS * 1000;
           await this.storage.setAlarm(Date.now() + TEN_SECONDS);
         }
 
@@ -215,19 +350,19 @@ export class Browser {
   }
 
   async alarm() {
-    this.keptAliveInSeconds += 10;
+    this.keptAliveInSeconds += ALARM_INTERVAL_SECONDS;
 
     // Extend browser DO life
-    if (this.keptAliveInSeconds < KEEP_BROWSER_ALIVE_IN_SECONDS) {
+    if (this.keptAliveInSeconds < KEEP_BROWSER_ALIVE_IN_SECONDS_CONSTANT) {
       console.log(
         `Browser DO: has been kept alive for ${this.keptAliveInSeconds} seconds. Extending lifespan.`
       );
-      await this.storage.setAlarm(Date.now() + 10 * 1000);
+      await this.storage.setAlarm(Date.now() + ALARM_INTERVAL_SECONDS * 1000);
       // You could ensure the ws connection is kept alive by requesting something
       // or just let it close automatically when there  is no work to be done
       // for example, `await this.browser.version()`
     } else {
-      console.log(`Browser DO: exceeded life of ${KEEP_BROWSER_ALIVE_IN_SECONDS}s.`);
+      console.log(`Browser DO: exceeded life of ${KEEP_BROWSER_ALIVE_IN_SECONDS_CONSTANT}s.`);
       if (this.browser) {
         console.log(`Closing browser.`);
         await this.browser.close();
