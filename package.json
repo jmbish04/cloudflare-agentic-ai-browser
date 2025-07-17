@@ -1,6 +1,7 @@
 {
   "name": "cloudflare-agentic-ai-browser",
   "version": "0.0.1",
+  "description": "Cloudflare Agentic AI Browser with automated lockfile management",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
