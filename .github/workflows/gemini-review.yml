@@ -4,12 +4,20 @@ on:
   pull_request:
     types: [opened, synchronize]
 
+# Grant permissions to read PR data
+permissions:
+  pull-requests: read
+  contents: read
+
 jobs:
   gemini_review:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history to enable diff comparison
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -22,4 +30,14 @@ jobs:
       - name: Run Gemini Review Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
         run: python scripts/gemini_review.py
+
+      - name: Upload review output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-review-output
+          path: gemini_review_output.md
+          if-no-files-found: ignore
