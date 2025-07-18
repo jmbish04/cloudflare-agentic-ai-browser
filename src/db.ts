@@ -10,13 +10,14 @@ export class Database {
     this.db = drizzle(this.env.DB);
   }
 
-  async insertJob(goal: string, baseUrl: string) {
+  async insertJob(goal: string, baseUrl: string, aiProvider: string = "openai") {
     const job = await this.db
       .insert(jobs)
       .values({
         goal,
         startingUrl: baseUrl,
         status: "pending",
+        aiProvider,
       })
       .returning({ id: jobs.id, createdAt: jobs.createdAt })
       .get();
@@ -78,10 +79,4 @@ export class Database {
   async getAllJobs() {
     return await this.db.select().from(jobs).orderBy(desc(jobs.createdAt)).all();
   }
-
-
-  async getJob(id: number) {
-    return await this.db.select().from(jobs).where(eq(jobs.id, id)).get();
-  }
-
 }
