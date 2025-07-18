@@ -7,11 +7,6 @@ import { getCleanHtml, removeHtmlsFromMessages } from "./utils";
 import { Database } from "./db";
 import { Hono } from "hono";
 import { html } from "hono/html";
-
-
-const app = new Hono<{ Bindings: Env }>();
-
-
 import { 
   DASHBOARD_TEMPLATE, 
   JOB_DETAIL_TEMPLATE, 
@@ -26,6 +21,19 @@ import {
   DASHBOARD_JS, 
   PROGRESS_JS 
 } from "./static-assets";
+
+// Constants
+const BROWSER_WIDTH = 1920;
+const BROWSER_HEIGHT = 1080;
+const KEEP_BROWSER_ALIVE_IN_SECONDS = 180;
+const DEFAULT_PAGE_TIMEOUT_MS = 10000;
+const R2_TIME_ROUNDING_COEFF = 1000 * 60 * 5; // 5 minutes
+const UI_UPDATE_WAIT_MS = 1000;
+const POLLING_INTERVAL_MS = 5000;
+const MAX_POLLING_CHECKS = 60; // ~5 minutes timeout
+const PROGRESS_CHECK_DELAY_MS = 2000;
+const KEEP_ALIVE_ALARM_INTERVAL_MS = 10 * 1000;
+const RADIX_DECIMAL = 10;
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -316,7 +324,7 @@ app.get("/", async (c) => {
 
 // Job detail page
 app.get("/job/:id", async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseInt(c.req.param("id"), RADIX_DECIMAL);
   
   if (isNaN(id)) {
     return c.html("Invalid job ID", 400);
@@ -433,133 +441,13 @@ app.get("/job/:id", async (c) => {
           ${job.status === 'running' ? `
             setTimeout(() => {
               window.location.reload();
-            }, 5000);
+            }, ${POLLING_INTERVAL_MS});
           ` : ''}
         </script>
       </head>
       <body>
         <a href="/" class="back-link">← Back to Dashboard</a>
 
-  const autoRefreshScript = job.status === 'running' 
-    ? '<script>setTimeout(() => { window.location.reload(); }, 5000);</script>'
-    : '';
-    
-  const refreshButton = job.status === 'running'
-    ? '<button onclick="window.location.reload()" class="refresh-btn">Refresh</button>'
-    : '';
-    
-  const completionInfo = job.completedAt 
-    ? `<div class="info-group">
-         <div class="info-label">Completed:</div>
-         <div class="info-value">${job.completedAt}</div>
-       </div>`
-    : '';
-    
-  const outputInfo = job.output
-    ? `<div class="info-group">
-         <div class="info-label">Result:</div>
-         <div class="output">${job.output}</div>
-       </div>`
-    : '';
-    
-  const logInfo = job.log
-    ? `<div class="info-group">
-         <div class="info-label">Execution Log:</div>
-         <div class="logs">${job.log}</div>
-       </div>`
-    : '';
-    
-  const runningNotice = job.status === 'running'
-    ? `<div style="margin-top: 20px; padding: 10px; background: #fff3cd; border-radius: 4px; color: #856404;">
-         <strong>Job is running...</strong> This page will auto-refresh every 5 seconds.
-       </div>`
-    : '';
-
-  const htmlContent = renderTemplate(JOB_DETAIL_TEMPLATE, {
-    JOB_ID: job.id.toString(),
-    JOB_STATUS: job.status,
-    JOB_GOAL: job.goal,
-    JOB_URL: job.startingUrl,
-    JOB_CREATED: job.createdAt,
-    AUTO_REFRESH_SCRIPT: autoRefreshScript,
-    REFRESH_BUTTON: refreshButton,
-    COMPLETION_INFO: completionInfo,
-    OUTPUT_INFO: outputInfo,
-    LOG_INFO: logInfo,
-    RUNNING_NOTICE: runningNotice
-  });
-
-  return c.html(htmlContent);
-});
-
-// Progress page for new jobs
-app.get("/progress", async (c) => {
-  const htmlContent = renderTemplate(PROGRESS_TEMPLATE, {});
-  return c.html(htmlContent);
-});
-
-// Legacy POST route for backwards compatibility
-app.post("/", async (c) => {
-  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
-  if (!success) {
-    return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
-  }
-
-
-  const id = c.env.BROWSER.idFromName("browser");
-  const obj = c.env.BROWSER.get(id);
-
-  const response = await obj.fetch(c.req.raw);
-  const { readable, writable } = new TransformStream();
-  response.body?.pipeTo(writable);
-
-  return new Response(readable, response);
-});
-
-const handler = {
-  fetch: app.fetch,
-
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    // Handle API routes
-    if (path.startsWith('/api/jobs')) {
-      const db = new Database(env);
-      
-      if (request.method === 'POST' && path === '/api/jobs') {
-        // Create new job
-        const data: { baseUrl?: string; goal?: string } = await request.json();
-        const baseUrl = data.baseUrl ?? "https://bubble.io";
-        const goal = data.goal ?? "Extract pricing model for this company";
-        
-        const job = await db.insertJob(goal, baseUrl);
-        
-        // Start job execution asynchronously
-        const id = env.BROWSER.idFromName("browser");
-        const obj = env.BROWSER.get(id);
-        
-        // Don't await this - let it run in the background
-        obj.fetch(new Request(request.url, {
-          method: 'POST',
-          body: JSON.stringify({ jobId: job.id, baseUrl, goal }),
-          headers: { 'Content-Type': 'application/json' }
-        }));
-        
-        return new Response(JSON.stringify({ 
-          jobId: job.id,
-          status: 'pending',
-          createdAt: job.createdAt
-        }), {
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-      
-      if (request.method === 'GET' && path.match(/^\/api\/jobs\/\d+$/)) {
-        // Get job status
-        const jobId = parseInt(path.split('/')[3], 10);
-        const job = await db.getJob(jobId);
-
-        
         <div class="container">
           <div class="job-header">
             <h1>Job #${job.id}</h1>
@@ -607,7 +495,7 @@ const handler = {
           
           ${job.status === 'running' ? html`
             <div style="margin-top: 20px; padding: 10px; background: #fff3cd; border-radius: 4px; color: #856404;">
-              <strong>Job is running...</strong> This page will auto-refresh every 5 seconds.
+              <strong>Job is running...</strong> This page will auto-refresh every ${POLLING_INTERVAL_MS / 1000} seconds.
             </div>
           ` : ''}
         </div>
@@ -624,6 +512,13 @@ app.get("/progress", async (c) => {
   if (!jobId) {
     return c.html(`
       <p>No job ID provided. <a href="/">Return to dashboard</a></p>
+    `, 400);
+  }
+  
+  const jobIdNum = parseInt(jobId, RADIX_DECIMAL);
+  if (isNaN(jobIdNum)) {
+    return c.html(`
+      <p>Invalid job ID provided. <a href="/">Return to dashboard</a></p>
     `, 400);
   }
   
@@ -677,9 +572,9 @@ app.get("/progress", async (c) => {
           }
         </style>
         <script>
-          const POLLING_INTERVAL_MS = 5000;
-          const MAX_CHECKS = 60; // ~5 minutes timeout
-          const JOB_ID = ${jobId};
+          const POLLING_INTERVAL_MS = ${POLLING_INTERVAL_MS};
+          const MAX_CHECKS = ${MAX_POLLING_CHECKS}; // ~5 minutes timeout
+          const JOB_ID = ${jobIdNum};
           let checkCount = 0;
           
           async function checkJobStatus() {
@@ -724,7 +619,7 @@ app.get("/progress", async (c) => {
           }
           
           // Start checking after a short delay
-          setTimeout(checkJobStatus, 2000);
+          setTimeout(checkJobStatus, ${PROGRESS_CHECK_DELAY_MS});
         </script>
       </head>
       <body>
@@ -780,7 +675,7 @@ app.get("/api/jobs", async (c) => {
 });
 
 app.get("/api/jobs/:id", async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseInt(c.req.param("id"), RADIX_DECIMAL);
   
   if (isNaN(id)) {
     return c.json({ error: "Invalid job ID" }, 400);
@@ -810,30 +705,12 @@ app.post("/", async (c) => {
   const { readable, writable } = new TransformStream();
   response.body?.pipeTo(writable);
 
-
   return new Response(readable, response);
 });
 
 const handler = {
   fetch: app.fetch,
-
-      return new Response(readable, response);
-    }
-    
-    return new Response("Please use POST request or API endpoints", { status: 400 });
-  },
-
-
 } satisfies ExportedHandler<Env>;
-
-const width = 1920;
-const height = 1080;
-const KEEP_BROWSER_ALIVE_IN_SECONDS = 180;
-
-// Constants for browser execution
-const DEFAULT_PAGE_TIMEOUT_MS = 10000;
-const R2_TIME_ROUNDING_COEFF = 1000 * 60 * 5; // 5 minutes
-const UI_UPDATE_WAIT_MS = 1000;
 
 export class Browser {
   private browser: puppeteer.Browser;
@@ -891,8 +768,7 @@ export class Browser {
 
     // use the current date and time to create a folder structure for R2
     const nowDate = new Date();
-    const coeff = 1000 * 60 * 5;
-    const roundedDate = new Date(Math.round(nowDate.getTime() / coeff) * coeff).toString();
+    const roundedDate = new Date(Math.round(nowDate.getTime() / R2_TIME_ROUNDING_COEFF) * R2_TIME_ROUNDING_COEFF).toString();
     const folder =
       roundedDate.split(" GMT")[0] + "_" + baseUrl.replace("https://", "").replace("http://", "");
 
@@ -911,9 +787,9 @@ export class Browser {
     this.state.waitUntil(
       (async () => {
         const page = await this.browser.newPage();
-        await page.setViewport({ width, height });
-        page.setDefaultNavigationTimeout(10000);
-        page.setDefaultTimeout(10000);
+        await page.setViewport({ width: BROWSER_WIDTH, height: BROWSER_HEIGHT });
+        page.setDefaultNavigationTimeout(DEFAULT_PAGE_TIMEOUT_MS);
+        page.setDefaultTimeout(DEFAULT_PAGE_TIMEOUT_MS);
         await page.goto(baseUrl);
 
         const initialHtml = await getCleanHtml(page);
@@ -1011,8 +887,7 @@ export class Browser {
         let currentAlarm = await this.storage.getAlarm();
         if (currentAlarm == null) {
           console.log(`Browser DO: setting alarm`);
-          const TEN_SECONDS = 10 * 1000;
-          await this.storage.setAlarm(Date.now() + TEN_SECONDS);
+          await this.storage.setAlarm(Date.now() + KEEP_ALIVE_ALARM_INTERVAL_MS);
         }
 
         writer.close();
@@ -1048,7 +923,7 @@ export class Browser {
       this.keptAliveInSeconds = 0;
 
       const page = await this.browser.newPage();
-      await page.setViewport({ width, height });
+      await page.setViewport({ width: BROWSER_WIDTH, height: BROWSER_HEIGHT });
       page.setDefaultNavigationTimeout(DEFAULT_PAGE_TIMEOUT_MS);
       page.setDefaultTimeout(DEFAULT_PAGE_TIMEOUT_MS);
       await page.goto(baseUrl);
@@ -1158,15 +1033,22 @@ export class Browser {
       let currentAlarm = await this.storage.getAlarm();
       if (currentAlarm == null) {
         console.log(`Browser DO: setting alarm`);
-        const TEN_SECONDS = 10 * 1000;
-        await this.storage.setAlarm(Date.now() + TEN_SECONDS);
+        await this.storage.setAlarm(Date.now() + KEEP_ALIVE_ALARM_INTERVAL_MS);
       }
     } catch (error: any) {
       console.error(`Job ${jobId} failed catastrophically:`, error);
       // Include error details in the job record for debugging
       const errorMessage = `Job failed with error: ${error.message || error}`;
-      await this.db.updateJobStatus(jobId, "failed");
-      // TODO: Add method to update job log with error details for better debugging
+      const errorLog = `[ERROR] ${errorMessage}\nStack: ${error.stack || 'No stack trace available'}`;
+      
+      try {
+        // Update job status and add error details to log
+        await this.db.updateJobStatus(jobId, "failed");
+        // If updateJob method exists, use it to add error details
+        await this.db.updateJob(jobId, [], [errorLog], new Date().toISOString());
+      } catch (updateError) {
+        console.error(`Failed to update job ${jobId} with error details:`, updateError);
+      }
     }
   }
 
@@ -1185,7 +1067,7 @@ export class Browser {
       console.log(
         `Browser DO: has been kept alive for ${this.keptAliveInSeconds} seconds. Extending lifespan.`
       );
-      await this.storage.setAlarm(Date.now() + 10 * 1000);
+      await this.storage.setAlarm(Date.now() + KEEP_ALIVE_ALARM_INTERVAL_MS);
       // You could ensure the ws connection is kept alive by requesting something
       // or just let it close automatically when there  is no work to be done
       // for example, `await this.browser.version()`
