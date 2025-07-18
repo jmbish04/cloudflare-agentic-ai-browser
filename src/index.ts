@@ -76,7 +76,7 @@ app.get("/job/:id", async (c) => {
   const completionInfo = job.completedAt ? `<div class="info-group"><div class="info-label">Completed:</div><div class="info-value">${job.completedAt}</div></div>` : '';
   const outputInfo = job.output ? `<div class="info-group"><div class="info-label">Result:</div><div class="output">${job.output}</div></div>` : '';
   const logInfo = job.log ? `<div class="info-group"><div class="info-label">Execution Log:</div><div class="logs">${job.log}</div></div>` : '';
-  const refreshScript = job.status === 'running' ? `<script>setTimeout(() => { window.location.reload(); }, 5000);</script>` : '';
+  const refreshScript = job.status === 'running' ? `<script>setTimeout(() => { window.location.reload(); }, ${JOB_STATUS_POLL_INTERVAL_MS});</script>` : '';
 
   const htmlContent = renderTemplate(JOB_DETAIL_TEMPLATE, {
     JOB_ID: job.id.toString(),
