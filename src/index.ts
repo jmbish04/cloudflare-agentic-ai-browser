@@ -120,6 +120,17 @@ app.get("/job/:id", async (c) => {
        </div>`
     : '';
     
+  const errorInfo = job.status === 'failed' && job.log
+    ? `<div class="info-group">
+         <div class="info-label">Error Details:</div>
+         <div class="error">This job failed during execution. Please check the execution log below for details. Common causes include:<br>
+         • The target website may be inaccessible<br>
+         • The website structure may not match the expected patterns<br>
+         • Network connectivity issues<br>
+         • Browser automation errors</div>
+       </div>`
+    : '';
+    
   const logInfo = job.log
     ? `<div class="info-group">
          <div class="info-label">Execution Log:</div>
@@ -128,8 +139,14 @@ app.get("/job/:id", async (c) => {
     : '';
     
   const runningNotice = job.status === 'running'
-    ? `<div style="margin-top: 20px; padding: 10px; background: #fff3cd; border-radius: 4px; color: #856404;">
-         <strong>Job is running...</strong> This page will auto-refresh every 5 seconds.
+    ? `<div class="running-notice">
+         <strong>🔄 Job is running...</strong> This page will auto-refresh every 5 seconds to show the latest progress.
+       </div>`
+    : '';
+    
+  const failedNotice = job.status === 'failed'
+    ? `<div class="failed-notice">
+         <strong>❌ Job failed</strong> This job encountered an error during execution. Check the error details and execution log above for more information. You can try creating a new job with the same parameters if the issue was temporary.
        </div>`
     : '';
 
@@ -143,8 +160,10 @@ app.get("/job/:id", async (c) => {
     REFRESH_BUTTON: refreshButton,
     COMPLETION_INFO: completionInfo,
     OUTPUT_INFO: outputInfo,
+    ERROR_INFO: errorInfo,
     LOG_INFO: logInfo,
-    RUNNING_NOTICE: runningNotice
+    RUNNING_NOTICE: runningNotice,
+    FAILED_NOTICE: failedNotice
   });
 
   return c.html(htmlContent);
@@ -246,6 +265,8 @@ const handler = {
 const width = 1920;
 const height = 1080;
 const KEEP_BROWSER_ALIVE_IN_SECONDS = 180;
+const BROWSER_NAVIGATION_TIMEOUT = 30000; // 30 seconds
+const BROWSER_DEFAULT_TIMEOUT = 15000; // 15 seconds
 
 export class Browser {
   private browser: puppeteer.Browser;
@@ -338,8 +359,8 @@ export class Browser {
 
           const page = await this.browser.newPage();
           await page.setViewport({ width, height });
-          page.setDefaultNavigationTimeout(10000);
-          page.setDefaultTimeout(10000);
+          page.setDefaultNavigationTimeout(BROWSER_NAVIGATION_TIMEOUT);
+          page.setDefaultTimeout(BROWSER_DEFAULT_TIMEOUT);
           await page.goto(baseUrl);
 
           const initialHtml = await getCleanHtml(page);
@@ -479,8 +500,8 @@ export class Browser {
 
       const page = await this.browser.newPage();
       await page.setViewport({ width, height });
-      page.setDefaultNavigationTimeout(10000);
-      page.setDefaultTimeout(10000);
+      page.setDefaultNavigationTimeout(BROWSER_NAVIGATION_TIMEOUT);
+      page.setDefaultTimeout(BROWSER_DEFAULT_TIMEOUT);
       await page.goto(baseUrl);
 
       const initialHtml = await getCleanHtml(page);
@@ -591,6 +612,18 @@ export class Browser {
       }
     } catch (error) {
       console.error(`Job ${jobId} failed:`, error);
+      
+      // Try to get more detailed error information
+      let errorMessage = error.message || 'Unknown error occurred';
+      if (error.name === 'TimeoutError') {
+        errorMessage = 'Operation timed out - the website may be slow to respond or unreachable';
+      } else if (error.message.includes('net::ERR_')) {
+        errorMessage = 'Network error - unable to reach the target website';
+      }
+      
+      // Update job status with error details
+      const logs = [`Job failed: ${errorMessage}`];
+      await this.db.updateJob(jobId, [], logs, new Date().toISOString());
       await this.db.updateJobStatus(jobId, "failed");
     }
   }

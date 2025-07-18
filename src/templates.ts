@@ -90,9 +90,13 @@ export const JOB_DETAIL_TEMPLATE = `<!DOCTYPE html>
       
       {{OUTPUT_INFO}}
       
+      {{ERROR_INFO}}
+      
       {{LOG_INFO}}
       
       {{RUNNING_NOTICE}}
+      
+      {{FAILED_NOTICE}}
     </div>
   </body>
 </html>`;

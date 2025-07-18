@@ -48,6 +48,11 @@ body {
   color: #155724;
 }
 
+.status-failed {
+  background: #f8d7da;
+  color: #721c24;
+}
+
 .status-pending {
   background: #cce5ff;
   color: #004085;
@@ -234,6 +239,32 @@ export const JOB_DETAIL_CSS = `/* Job detail page specific styles */
   padding: 15px;
   border-radius: 4px;
   border: 1px solid #c3e6c3;
+}
+
+.error {
+  background: #f8d7da;
+  padding: 15px;
+  border-radius: 4px;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+}
+
+.failed-notice {
+  margin-top: 20px;
+  padding: 15px;
+  background: #f8d7da;
+  border-radius: 4px;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.running-notice {
+  margin-top: 20px;
+  padding: 10px;
+  background: #fff3cd;
+  border-radius: 4px;
+  color: #856404;
+  border: 1px solid #ffeaa7;
 }`;
 
 /**
@@ -279,6 +310,12 @@ async function submitJob(event) {
   const baseUrl = formData.get('baseUrl');
   const goal = formData.get('goal');
   
+  // Basic validation
+  if (!baseUrl || !goal) {
+    alert('Please provide both a Base URL and Goal');
+    return;
+  }
+  
   const button = event.target.querySelector('button');
   button.disabled = true;
   button.textContent = 'Starting...';
@@ -302,10 +339,13 @@ async function submitJob(event) {
       event.target.reset();
       setTimeout(() => window.location.reload(), 2000);
     } else {
-      alert('Failed to create job');
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage = errorData.error || 'Failed to create job';
+      alert('Error: ' + errorMessage);
     }
   } catch (error) {
-    alert('Error: ' + error.message);
+    console.error('Error submitting job:', error);
+    alert('Network error: Unable to connect to the server. Please check your connection and try again.');
   } finally {
     button.disabled = false;
     button.textContent = 'Start Browser Agent';
@@ -320,9 +360,11 @@ function viewJob(id) {
  * Progress page JavaScript functionality
  */
 export const PROGRESS_JS = `// Progress page functionality
-const POLLING_INTERVAL_MS = 5000;
-const MAX_CHECKS = 60; // ~5 minutes timeout
+const INITIAL_POLLING_INTERVAL_MS = 2000;
+const MAX_POLLING_INTERVAL_MS = 10000;
+const MAX_CHECKS = 60; // ~5 minutes timeout with exponential backoff
 let checkCount = 0;
+let currentPollingInterval = INITIAL_POLLING_INTERVAL_MS;
 
 // Get job ID from URL parameters
 const urlParams = new URLSearchParams(window.location.search);
@@ -335,7 +377,7 @@ if (!jobId) {
   }, 3000);
 } else {
   // Start checking the specific job
-  setTimeout(checkSpecificJob, 2000);
+  setTimeout(checkSpecificJob, INITIAL_POLLING_INTERVAL_MS);
 }
 
 async function checkSpecificJob() {
@@ -345,14 +387,31 @@ async function checkSpecificJob() {
     if (response.ok) {
       const job = await response.json();
       
-      // Redirect to job detail page once job is found
-      window.location.href = '/job/' + job.id;
-      return;
-    } else if (response.status === 404) {
-      // Job not found yet, continue polling
+      // If job is running, completed, or failed, redirect to job page
+      if (job.status === 'running' || job.status === 'completed' || job.status === 'failed') {
+        window.location.href = '/job/' + job.id;
+        return;
+      }
+      
+      // Job is still pending, continue polling with exponential backoff
       checkCount++;
       if (checkCount < MAX_CHECKS) {
-        setTimeout(checkSpecificJob, POLLING_INTERVAL_MS);
+        // Reset polling interval since we got a successful response
+        currentPollingInterval = INITIAL_POLLING_INTERVAL_MS;
+        setTimeout(checkSpecificJob, currentPollingInterval);
+      } else {
+        document.getElementById('status').textContent = 'Job creation timed out. Please check the dashboard.';
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 3000);
+      }
+    } else if (response.status === 404) {
+      // Job not found yet, continue polling with exponential backoff
+      checkCount++;
+      if (checkCount < MAX_CHECKS) {
+        // Increase polling interval to reduce server load
+        currentPollingInterval = Math.min(currentPollingInterval * 1.5, MAX_POLLING_INTERVAL_MS);
+        setTimeout(checkSpecificJob, currentPollingInterval);
       } else {
         document.getElementById('status').textContent = 'Job creation timed out. Please check the dashboard.';
         setTimeout(() => {
@@ -360,18 +419,21 @@ async function checkSpecificJob() {
         }, 3000);
       }
     } else {
-      throw new Error('Failed to fetch job status');
+      throw new Error('HTTP ' + response.status + ': ' + response.statusText);
     }
   } catch (error) {
     console.error('Error checking for job:', error);
     checkCount++;
     if (checkCount < MAX_CHECKS) {
-      setTimeout(checkSpecificJob, POLLING_INTERVAL_MS);
+      // Increase polling interval on error to reduce server load
+      currentPollingInterval = Math.min(currentPollingInterval * 2, MAX_POLLING_INTERVAL_MS);
+      document.getElementById('status').textContent = 'Retrying connection... (attempt ' + (checkCount + 1) + ')';
+      setTimeout(checkSpecificJob, currentPollingInterval);
     } else {
-      document.getElementById('status').textContent = 'An error occurred while checking for the job. Please check the dashboard.';
+      document.getElementById('status').textContent = 'Connection failed. Please check the dashboard or try again.';
       setTimeout(() => {
         window.location.href = '/';
-      }, 3000);
+      }, 5000);
     }
   }
 }`;
