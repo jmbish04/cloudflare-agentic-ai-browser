@@ -23,6 +23,11 @@ export class Database {
     return job;
   }
 
+  async createJob(goal: string, baseUrl: string) {
+    const job = await this.insertJob(goal, baseUrl);
+    return job.id;
+  }
+
   async updateJob(
     id: number,
     messages: ChatCompletionMessageParam[],
@@ -48,11 +53,35 @@ export class Database {
     return job;
   }
 
+  async getJobs() {
+    return await this.db.select().from(jobs).orderBy(desc(jobs.createdAt)).all();
+  }
+
+  async getJobsByStatus(status: string) {
+    return await this.db
+      .select()
+      .from(jobs)
+      .where(eq(jobs.status, status))
+      .orderBy(desc(jobs.createdAt))
+      .all();
+  }
+
   async updateJobStatus(id: number, status: string) {
     await this.db
       .update(jobs)
       .set({
         status,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(jobs.id, id));
+  }
+
+  async updateJobResult(id: number, result: string, messages: ChatCompletionMessageParam[]) {
+    await this.db
+      .update(jobs)
+      .set({
+        output: result,
+        messages: JSON.stringify(messages),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(jobs.id, id));
