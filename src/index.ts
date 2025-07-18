@@ -7,11 +7,6 @@ import { getCleanHtml, removeHtmlsFromMessages } from "./utils";
 import { Database } from "./db";
 import { Hono } from "hono";
 import { html } from "hono/html";
-
-
-const app = new Hono<{ Bindings: Env }>();
-
-
 import { 
   DASHBOARD_TEMPLATE, 
   JOB_DETAIL_TEMPLATE, 
@@ -434,177 +429,6 @@ app.get("/job/:id", async (c) => {
       </head>
       <body>
         <a href="/" class="back-link">← Back to Dashboard</a>
-
-  const autoRefreshScript = job.status === 'running' 
-    ? '<script>setTimeout(() => { window.location.reload(); }, 5000);</script>'
-    : '';
-    
-  const refreshButton = job.status === 'running'
-    ? '<button onclick="window.location.reload()" class="refresh-btn">Refresh</button>'
-    : '';
-    
-  const completionInfo = job.completedAt 
-    ? `<div class="info-group">
-         <div class="info-label">Completed:</div>
-         <div class="info-value">${job.completedAt}</div>
-       </div>`
-    : '';
-    
-  const outputInfo = job.output
-    ? `<div class="info-group">
-         <div class="info-label">Result:</div>
-         <div class="output">${job.output}</div>
-       </div>`
-    : '';
-    
-  const logInfo = job.log
-    ? `<div class="info-group">
-         <div class="info-label">Execution Log:</div>
-         <div class="logs">${job.log}</div>
-       </div>`
-    : '';
-    
-  const runningNotice = job.status === 'running'
-    ? `<div style="margin-top: 20px; padding: 10px; background: #fff3cd; border-radius: 4px; color: #856404;">
-         <strong>Job is running...</strong> This page will auto-refresh every 5 seconds.
-       </div>`
-    : '';
-
-  const htmlContent = renderTemplate(JOB_DETAIL_TEMPLATE, {
-    JOB_ID: job.id.toString(),
-    JOB_STATUS: job.status,
-    JOB_GOAL: job.goal,
-    JOB_URL: job.startingUrl,
-    JOB_CREATED: job.createdAt,
-    AUTO_REFRESH_SCRIPT: autoRefreshScript,
-    REFRESH_BUTTON: refreshButton,
-    COMPLETION_INFO: completionInfo,
-    OUTPUT_INFO: outputInfo,
-    LOG_INFO: logInfo,
-    RUNNING_NOTICE: runningNotice
-  });
-
-  return c.html(htmlContent);
-});
-
-// Progress page for new jobs
-app.get("/progress", async (c) => {
-  const htmlContent = renderTemplate(PROGRESS_TEMPLATE, {});
-  return c.html(htmlContent);
-});
-
-// API routes
-app.post("/api/jobs", async (c) => {
-  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
-  if (!success) {
-    return c.json({ error: "Rate limit exceeded" }, 429);
-  }
-
-
-//   const id = c.env.BROWSER.idFromName("browser");
-//   const obj = c.env.BROWSER.get(id);
-  
-//   // Start the browser job and get the streaming response
-//   const response = await obj.fetch(c.req.raw);
-  
-//   // For the frontend, we need to return job info immediately
-//   // The actual job creation happens in the Browser class
-//   // We'll modify this to extract job ID when available
-  
-//   return new Response(response.body, {
-//     headers: {
-//       "Content-Type": "text/plain",
-//       "Transfer-Encoding": "chunked"
-
-// const handler = {
-//   async fetch(request, env): Promise<Response> {
-//     const { success } = await env.RATE_LIMITER.limit({ key: "/" });
-//     if (!success) {
-//       return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
-
-//     }
-//   });
-// });
-
-app.get("/api/jobs", async (c) => {
-  const db = new Database(c.env);
-  const jobs = await db.getAllJobs();
-  return c.json(jobs);
-});
-
-app.get("/api/jobs/:id", async (c) => {
-  const id = parseInt(c.req.param("id"));
-  const db = new Database(c.env);
-  const job = await db.getJob(id);
-  
-  if (!job) {
-    return c.json({ error: "Job not found" }, 404);
-  }
-  
-  return c.json(job);
-});
-
-// Legacy POST route for backwards compatibility
-app.post("/", async (c) => {
-  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
-  if (!success) {
-    return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
-  }
-
-
-  const id = c.env.BROWSER.idFromName("browser");
-  const obj = c.env.BROWSER.get(id);
-
-  const response = await obj.fetch(c.req.raw);
-  const { readable, writable } = new TransformStream();
-  response.body?.pipeTo(writable);
-
-  return new Response(readable, response);
-});
-
-const handler = {
-  fetch: app.fetch,
-
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    // Handle API routes
-    if (path.startsWith('/api/jobs')) {
-      const db = new Database(env);
-      
-      if (request.method === 'POST' && path === '/api/jobs') {
-        // Create new job
-        const data: { baseUrl?: string; goal?: string } = await request.json();
-        const baseUrl = data.baseUrl ?? "https://bubble.io";
-        const goal = data.goal ?? "Extract pricing model for this company";
-        
-        const job = await db.insertJob(goal, baseUrl);
-        
-        // Start job execution asynchronously
-        const id = env.BROWSER.idFromName("browser");
-        const obj = env.BROWSER.get(id);
-        
-        // Don't await this - let it run in the background
-        obj.fetch(new Request(request.url, {
-          method: 'POST',
-          body: JSON.stringify({ jobId: job.id, baseUrl, goal }),
-          headers: { 'Content-Type': 'application/json' }
-        }));
-        
-        return new Response(JSON.stringify({ 
-          jobId: job.id,
-          status: 'pending',
-          createdAt: job.createdAt
-        }), {
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-      
-      if (request.method === 'GET' && path.match(/^\/api\/jobs\/\d+$/)) {
-        // Get job status
-        const jobId = parseInt(path.split('/')[3]);
-        const job = await db.getJob(jobId);
-
         
         <div class="container">
           <div class="job-header">
@@ -663,6 +487,80 @@ const handler = {
 });
 
 // Progress page for new jobs
+app.get("/progress", async (c) => {
+  const htmlContent = renderTemplate(PROGRESS_TEMPLATE, {});
+  return c.html(htmlContent);
+});
+
+// API routes
+app.post("/api/jobs", async (c) => {
+  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
+  if (!success) {
+    return c.json({ error: "Rate limit exceeded" }, 429);
+  }
+
+  const data: { baseUrl?: string; goal?: string } = await c.req.json();
+  const baseUrl = data.baseUrl ?? "https://bubble.io";
+  const goal = data.goal ?? "Extract pricing model for this company";
+  
+  const db = new Database(c.env);
+  const job = await db.insertJob(goal, baseUrl);
+  
+  // Start job execution asynchronously
+  const id = c.env.BROWSER.idFromName("browser");
+  const obj = c.env.BROWSER.get(id);
+  
+  // Don't await this - let it run in the background
+  obj.fetch(new Request(c.req.url, {
+    method: 'POST',
+    body: JSON.stringify({ jobId: job.id, baseUrl, goal }),
+    headers: { 'Content-Type': 'application/json' }
+  }));
+  
+  return c.json({ 
+    jobId: job.id,
+    status: 'pending',
+    createdAt: job.createdAt
+  });
+});
+
+app.get("/api/jobs", async (c) => {
+  const db = new Database(c.env);
+  const jobs = await db.getAllJobs();
+  return c.json(jobs);
+});
+
+app.get("/api/jobs/:id", async (c) => {
+  const id = parseInt(c.req.param("id"));
+  const db = new Database(c.env);
+  const job = await db.getJob(id);
+  
+  if (!job) {
+    return c.json({ error: "Job not found" }, 404);
+  }
+  
+  return c.json(job);
+});
+
+// Legacy POST route for backwards compatibility
+app.post("/", async (c) => {
+  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
+  if (!success) {
+    return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
+  }
+
+
+  const id = c.env.BROWSER.idFromName("browser");
+  const obj = c.env.BROWSER.get(id);
+
+  const response = await obj.fetch(c.req.raw);
+  const { readable, writable } = new TransformStream();
+  response.body?.pipeTo(writable);
+
+  return new Response(readable, response);
+});
+
+// Progress page for new jobs  
 app.get("/progress", async (c) => {
   const urlParams = new URL(c.req.url).searchParams;
   const jobId = urlParams.get('jobId');
@@ -787,84 +685,8 @@ app.get("/progress", async (c) => {
   `);
 });
 
-// API routes
-app.post("/api/jobs", async (c) => {
-  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
-  if (!success) {
-    return c.json({ error: "Rate limit exceeded" }, 429);
-  }
-
-  const data: { baseUrl?: string; goal?: string } = await c.req.json();
-  const baseUrl = data.baseUrl ?? "https://bubble.io";
-  const goal = data.goal ?? "Extract pricing model for this company";
-  
-  const db = new Database(c.env);
-  const job = await db.insertJob(goal, baseUrl);
-  
-  // Start job execution asynchronously
-  const id = c.env.BROWSER.idFromName("browser");
-  const obj = c.env.BROWSER.get(id);
-  
-  // Don't await this - let it run in the background
-  obj.fetch(new Request(c.req.url, {
-    method: 'POST',
-    body: JSON.stringify({ jobId: job.id, baseUrl, goal }),
-    headers: { 'Content-Type': 'application/json' }
-  }));
-  
-  return c.json({ 
-    jobId: job.id,
-    status: 'pending',
-    createdAt: job.createdAt
-  });
-});
-
-app.get("/api/jobs", async (c) => {
-  const db = new Database(c.env);
-  const jobs = await db.getAllJobs();
-  return c.json(jobs);
-});
-
-app.get("/api/jobs/:id", async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
-  const db = new Database(c.env);
-  const job = await db.getJob(id);
-  
-  if (!job) {
-    return c.json({ error: "Job not found" }, 404);
-  }
-  
-  return c.json(job);
-});
-
-// Legacy POST route for backwards compatibility
-app.post("/", async (c) => {
-  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
-  if (!success) {
-    return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
-  }
-
-  const id = c.env.BROWSER.idFromName("browser");
-  const obj = c.env.BROWSER.get(id);
-
-  const response = await obj.fetch(c.req.raw);
-  const { readable, writable } = new TransformStream();
-  response.body?.pipeTo(writable);
-
-
-  return new Response(readable, response);
-});
-
 const handler = {
   fetch: app.fetch,
-
-      return new Response(readable, response);
-    }
-    
-    return new Response("Please use POST request or API endpoints", { status: 400 });
-  },
-
-
 } satisfies ExportedHandler<Env>;
 
 const width = 1920;
