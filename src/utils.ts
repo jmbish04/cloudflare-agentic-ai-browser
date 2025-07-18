@@ -31,7 +31,7 @@ export async function getCleanHtml(page: Page | string): Promise<string> {
   }
 
   const rawHtml =
-    typeof page === "string" ? page : await page.evaluate(() => (document as any).body.innerHTML);
+    typeof page === "string" ? page : await page.evaluate(() => (globalThis as any).document.body.innerHTML);
 
   const cleanedHtml = [
     removeScriptAndStyleTags,
