@@ -7,6 +7,11 @@ import { getCleanHtml, removeHtmlsFromMessages } from "./utils";
 import { Database } from "./db";
 import { Hono } from "hono";
 import { html } from "hono/html";
+
+
+const app = new Hono<{ Bindings: Env }>();
+
+
 import { 
   DASHBOARD_TEMPLATE, 
   JOB_DETAIL_TEMPLATE, 
@@ -61,11 +66,232 @@ app.get("/static/js/progress.js", (c) => {
   });
 });
 
+
 // Frontend routes
 app.get("/", async (c) => {
   const db = new Database(c.env);
   const jobs = await db.getAllJobs();
   
+
+  return c.html(html`
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>AI Browser Agent Dashboard</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+          }
+          .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          }
+          .form-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          }
+          .form-group {
+            margin-bottom: 15px;
+          }
+          label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+          }
+          input, textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+          }
+          textarea {
+            resize: vertical;
+            min-height: 80px;
+          }
+          button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+          }
+          button:hover {
+            background: #005fa3;
+          }
+          .jobs-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          }
+          .job {
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+          }
+          .job:hover {
+            background: #fafafa;
+          }
+          .job-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+          }
+          .job-id {
+            font-weight: bold;
+            color: #333;
+          }
+          .job-status {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+          }
+          .status-running {
+            background: #fff3cd;
+            color: #856404;
+          }
+          .status-success {
+            background: #d4edda;
+            color: #155724;
+          }
+          .status-pending {
+            background: #cce5ff;
+            color: #004085;
+          }
+          .job-goal {
+            margin-bottom: 5px;
+            color: #555;
+          }
+          .job-url {
+            font-size: 12px;
+            color: #888;
+          }
+          .job-time {
+            font-size: 12px;
+            color: #888;
+          }
+          .refresh-btn {
+            margin-bottom: 20px;
+          }
+          .jobs-list-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>🤖 AI Browser Agent Dashboard</h1>
+          <p>Create browser automation requests and monitor their progress</p>
+        </div>
+
+        <div class="form-container">
+          <h2>Create New Request</h2>
+          <form id="newJobForm" onsubmit="submitJob(event)">
+            <div class="form-group">
+              <label for="baseUrl">Base URL:</label>
+              <input type="url" id="baseUrl" name="baseUrl" required placeholder="https://example.com" />
+            </div>
+            <div class="form-group">
+              <label for="goal">Goal:</label>
+              <textarea id="goal" name="goal" required placeholder="Extract pricing information from this website"></textarea>
+            </div>
+            <button type="submit">Start Browser Agent</button>
+          </form>
+        </div>
+
+        <div class="jobs-container">
+          <div class="jobs-list-header">
+            <h2>Job History</h2>
+            <button onclick="window.location.reload()" class="refresh-btn">Refresh</button>
+          </div>
+          
+          ${jobs.length === 0 ? 
+            html`<p>No jobs yet. Create your first browser automation request above!</p>` :
+            jobs.map(job => html`
+              <div class="job" onclick="viewJob(${job.id})">
+                <div class="job-header">
+                  <span class="job-id">Job #${job.id}</span>
+                  <span class="job-status status-${job.status}">${job.status}</span>
+                </div>
+                <div class="job-goal"><strong>Goal:</strong> ${job.goal}</div>
+                <div class="job-url"><strong>URL:</strong> ${job.startingUrl}</div>
+                <div class="job-time"><strong>Created:</strong> ${job.createdAt}</div>
+              </div>
+            `)
+          }
+        </div>
+
+        <script>
+          async function submitJob(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const baseUrl = formData.get('baseUrl');
+            const goal = formData.get('goal');
+            
+            const button = event.target.querySelector('button');
+            button.disabled = true;
+            button.textContent = 'Starting...';
+            
+            try {
+              // Submit the job
+              const response = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ baseUrl, goal })
+              });
+              
+              if (response.ok) {
+                const jobData = await response.json();
+                // Open progress page with the specific job ID
+                window.open('/progress?jobId=' + jobData.jobId, '_blank');
+                
+                // Reset form and refresh page
+                event.target.reset();
+                setTimeout(() => window.location.reload(), 2000);
+              } else {
+                alert('Failed to create job');
+              }
+            } catch (error) {
+              alert('Error: ' + error.message);
+            } finally {
+              button.disabled = false;
+              button.textContent = 'Start Browser Agent';
+            }
+          }
+          
+          function viewJob(id) {
+            window.open('/job/' + id, '_blank');
+          }
+        </script>
+      </body>
+    </html>
+  `);
+
   const jobsContent = jobs.length === 0 
     ? '<p>No jobs yet. Create your first browser automation request above!</p>'
     : jobs.map(job => `
@@ -85,6 +311,7 @@ app.get("/", async (c) => {
   });
 
   return c.html(htmlContent);
+
 });
 
 // Job detail page
@@ -97,6 +324,117 @@ app.get("/job/:id", async (c) => {
     return c.html("Job not found", 404);
   }
   
+
+  return c.html(html`
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Job #${job.id} - AI Browser Agent</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+          }
+          .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          }
+          .job-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+          }
+          .job-status {
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 500;
+          }
+          .status-running {
+            background: #fff3cd;
+            color: #856404;
+          }
+          .status-success {
+            background: #d4edda;
+            color: #155724;
+          }
+          .status-pending {
+            background: #cce5ff;
+            color: #004085;
+          }
+          .info-group {
+            margin-bottom: 20px;
+          }
+          .info-label {
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 5px;
+          }
+          .info-value {
+            color: #666;
+            word-break: break-all;
+          }
+          .logs {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e9ecef;
+          }
+          .output {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #c3e6c3;
+          }
+          .back-link {
+            color: #007acc;
+            text-decoration: none;
+            margin-bottom: 20px;
+            display: inline-block;
+          }
+          .back-link:hover {
+            text-decoration: underline;
+          }
+          .refresh-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+          }
+          .refresh-btn:hover {
+            background: #218838;
+          }
+        </style>
+        <script>
+          // Auto-refresh for running jobs
+          ${job.status === 'running' ? `
+            setTimeout(() => {
+              window.location.reload();
+            }, 5000);
+          ` : ''}
+        </script>
+      </head>
+      <body>
+        <a href="/" class="back-link">← Back to Dashboard</a>
+
   const autoRefreshScript = job.status === 'running' 
     ? '<script>setTimeout(() => { window.location.reload(); }, 5000);</script>'
     : '';
@@ -266,46 +604,266 @@ const handler = {
         // Get job status
         const jobId = parseInt(path.split('/')[3]);
         const job = await db.getJob(jobId);
-        
-        if (!job) {
-          return new Response(JSON.stringify({ error: 'Job not found' }), {
-            status: 404,
-            headers: { 'Content-Type': 'application/json' }
-          });
-        }
-        
-        return new Response(JSON.stringify({
-          jobId: job.id,
-          status: job.status,
-          goal: job.goal,
-          startingUrl: job.startingUrl,
-          output: job.output,
-          createdAt: job.createdAt,
-          updatedAt: job.updatedAt,
-          completedAt: job.completedAt,
-          log: job.log
-        }), {
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-      
-      return new Response('Method not allowed', { status: 405 });
-    }
 
-    // Legacy endpoint - redirect to new API for job execution
-    if (request.method === "POST") {
-      const id = env.BROWSER.idFromName("browser");
-      const obj = env.BROWSER.get(id);
+        
+        <div class="container">
+          <div class="job-header">
+            <h1>Job #${job.id}</h1>
+            <div>
+              <span class="job-status status-${job.status}">${job.status}</span>
+              ${job.status === 'running' ? html`<button onclick="window.location.reload()" class="refresh-btn">Refresh</button>` : ''}
+            </div>
+          </div>
+          
+          <div class="info-group">
+            <div class="info-label">Goal:</div>
+            <div class="info-value">${job.goal}</div>
+          </div>
+          
+          <div class="info-group">
+            <div class="info-label">Starting URL:</div>
+            <div class="info-value"><a href="${job.startingUrl}" target="_blank">${job.startingUrl}</a></div>
+          </div>
+          
+          <div class="info-group">
+            <div class="info-label">Created:</div>
+            <div class="info-value">${job.createdAt}</div>
+          </div>
+          
+          ${job.completedAt ? html`
+            <div class="info-group">
+              <div class="info-label">Completed:</div>
+              <div class="info-value">${job.completedAt}</div>
+            </div>
+          ` : ''}
+          
+          ${job.output ? html`
+            <div class="info-group">
+              <div class="info-label">Result:</div>
+              <div class="output">${job.output}</div>
+            </div>
+          ` : ''}
+          
+          ${job.log ? html`
+            <div class="info-group">
+              <div class="info-label">Execution Log:</div>
+              <div class="logs">${job.log}</div>
+            </div>
+          ` : ''}
+          
+          ${job.status === 'running' ? html`
+            <div style="margin-top: 20px; padding: 10px; background: #fff3cd; border-radius: 4px; color: #856404;">
+              <strong>Job is running...</strong> This page will auto-refresh every 5 seconds.
+            </div>
+          ` : ''}
+        </div>
+      </body>
+    </html>
+  `);
+});
 
-      const response = await obj.fetch(request);
-      const { readable, writable } = new TransformStream();
-      response.body.pipeTo(writable);
+// Progress page for new jobs
+app.get("/progress", async (c) => {
+  const urlParams = new URL(c.req.url).searchParams;
+  const jobId = urlParams.get('jobId');
+  
+  if (!jobId) {
+    return c.html(`
+      <p>No job ID provided. <a href="/">Return to dashboard</a></p>
+    `, 400);
+  }
+  
+  return c.html(html`
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Job Progress - AI Browser Agent</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+          }
+          .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            text-align: center;
+          }
+          .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007acc;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          .status {
+            color: #666;
+            margin: 10px 0;
+          }
+          .back-link {
+            color: #007acc;
+            text-decoration: none;
+            margin-bottom: 20px;
+            display: inline-block;
+          }
+          .back-link:hover {
+            text-decoration: underline;
+          }
+        </style>
+        <script>
+          const POLLING_INTERVAL_MS = 5000;
+          const MAX_CHECKS = 60; // ~5 minutes timeout
+          const JOB_ID = ${jobId};
+          let checkCount = 0;
+          
+          async function checkJobStatus() {
+            try {
+              const response = await fetch('/api/jobs/' + JOB_ID);
+              
+              if (response.ok) {
+                const job = await response.json();
+                
+                // If job is running or completed, redirect to job page
+                if (job.status === 'running' || job.status === 'completed' || job.status === 'failed') {
+                  window.location.href = '/job/' + JOB_ID;
+                  return;
+                }
+                
+                // Job is still pending, continue polling
+                checkCount++;
+                if (checkCount < MAX_CHECKS) {
+                  setTimeout(checkJobStatus, POLLING_INTERVAL_MS);
+                } else {
+                  document.getElementById('status').textContent = 'Job creation timed out. Please check the dashboard.';
+                  setTimeout(() => {
+                    window.location.href = '/';
+                  }, 3000);
+                }
+              } else {
+                // Job not found, redirect to job page which will show "not found"
+                window.location.href = '/job/' + JOB_ID;
+              }
+            } catch (error) {
+              console.error('Error checking for job:', error);
+              checkCount++;
+              if (checkCount < MAX_CHECKS) {
+                setTimeout(checkJobStatus, POLLING_INTERVAL_MS);
+              } else {
+                document.getElementById('status').textContent = 'An error occurred while checking for the job. Please check the dashboard.';
+                setTimeout(() => {
+                  window.location.href = '/';
+                }, 3000);
+              }
+            }
+          }
+          
+          // Start checking after a short delay
+          setTimeout(checkJobStatus, 2000);
+        </script>
+      </head>
+      <body>
+        <a href="/" class="back-link">← Back to Dashboard</a>
+        
+        <div class="container">
+          <h1>🚀 Starting Browser Agent</h1>
+          <div class="spinner"></div>
+          <div id="status" class="status">Creating job and initializing browser...</div>
+          <p>This page will automatically redirect to the job progress once it's ready.</p>
+        </div>
+      </body>
+    </html>
+  `);
+});
+
+// API routes
+app.post("/api/jobs", async (c) => {
+  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
+  if (!success) {
+    return c.json({ error: "Rate limit exceeded" }, 429);
+  }
+
+  const data: { baseUrl?: string; goal?: string } = await c.req.json();
+  const baseUrl = data.baseUrl ?? "https://bubble.io";
+  const goal = data.goal ?? "Extract pricing model for this company";
+  
+  const db = new Database(c.env);
+  const job = await db.insertJob(goal, baseUrl);
+  
+  // Start job execution asynchronously
+  const id = c.env.BROWSER.idFromName("browser");
+  const obj = c.env.BROWSER.get(id);
+  
+  // Don't await this - let it run in the background
+  obj.fetch(new Request(c.req.url, {
+    method: 'POST',
+    body: JSON.stringify({ jobId: job.id, baseUrl, goal }),
+    headers: { 'Content-Type': 'application/json' }
+  }));
+  
+  return c.json({ 
+    jobId: job.id,
+    status: 'pending',
+    createdAt: job.createdAt
+  });
+});
+
+app.get("/api/jobs", async (c) => {
+  const db = new Database(c.env);
+  const jobs = await db.getAllJobs();
+  return c.json(jobs);
+});
+
+app.get("/api/jobs/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const db = new Database(c.env);
+  const job = await db.getJob(id);
+  
+  if (!job) {
+    return c.json({ error: "Job not found" }, 404);
+  }
+  
+  return c.json(job);
+});
+
+// Legacy POST route for backwards compatibility
+app.post("/", async (c) => {
+  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
+  if (!success) {
+    return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
+  }
+
+  const id = c.env.BROWSER.idFromName("browser");
+  const obj = c.env.BROWSER.get(id);
+
+  const response = await obj.fetch(c.req.raw);
+  const { readable, writable } = new TransformStream();
+  response.body?.pipeTo(writable);
+
+
+  return new Response(readable, response);
+});
+
+const handler = {
+  fetch: app.fetch,
 
       return new Response(readable, response);
     }
     
     return new Response("Please use POST request or API endpoints", { status: 400 });
   },
+
 
 } satisfies ExportedHandler<Env>;
 
