@@ -533,7 +533,7 @@ app.get("/api/jobs", async (c) => {
 });
 
 app.get("/api/jobs/:id", async (c) => {
-  const id = parseInt(c.req.param("id"));
+  const id = parseInt(c.req.param("id"), 10);
   const db = new Database(c.env);
   const job = await db.getJob(id);
   
@@ -564,9 +564,7 @@ app.post("/", async (c) => {
 
 const handler = {
   fetch: app.fetch,
-
-    const url = new URL(request.url);
-    const path = url.pathname;
+} satisfies ExportedHandler<Env>;
 
     // Handle API routes
     if (path.startsWith('/api/jobs')) {
@@ -602,7 +600,7 @@ const handler = {
       
       if (request.method === 'GET' && path.match(/^\/api\/jobs\/\d+$/)) {
         // Get job status
-        const jobId = parseInt(path.split('/')[3]);
+        const jobId = parseInt(path.split('/')[3], 10);
         const job = await db.getJob(jobId);
 
         
@@ -795,8 +793,12 @@ app.post("/api/jobs", async (c) => {
   }
 
   const data: { baseUrl?: string; goal?: string } = await c.req.json();
-  const baseUrl = data.baseUrl ?? "https://bubble.io";
-  const goal = data.goal ?? "Extract pricing model for this company";
+  const baseUrl = data.baseUrl;
+  const goal = data.goal;
+  
+  if (!baseUrl || !goal) {
+    return c.json({ error: "Base URL and Goal are required" }, 400);
+  }
   
   const db = new Database(c.env);
   const job = await db.insertJob(goal, baseUrl);
@@ -893,16 +895,27 @@ export class Browser {
   }
 
   async fetch(request: Request) {
-    const data: { baseUrl?: string; goal?: string; jobId?: number } = await request.json();
+    const data: { baseUrl?: string; goal?: string; jobId?: number } = await request.json().catch((e) => {
+      console.error("Failed to parse request JSON:", e);
+      return {};
+    });
     
     // Check if this is a new API request with jobId
-    if (data.jobId) {
+    if (data.jobId && data.baseUrl && data.goal) {
       // This is an async job execution request
-      await this.executeJob(data.jobId, data.baseUrl!, data.goal!);
-      return new Response("Job execution started", { status: 200 });
+      this.state.waitUntil(this.executeJob(data.jobId, data.baseUrl, data.goal));
+      return new Response("Job execution started in background.", { status: 202 });
     }
 
-    // Legacy streaming response format
+    // Legacy streaming response format for backward compatibility
+    if (data.baseUrl && data.goal) {
+      return this.handleLegacyStreamingRequest(data.baseUrl, data.goal);
+    }
+
+    // Invalid request
+  }
+
+  async handleLegacyStreamingRequest(baseUrl: string, goal: string) {
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const textEncoder = new TextEncoder();
