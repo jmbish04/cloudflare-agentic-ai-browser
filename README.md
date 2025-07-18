@@ -80,3 +80,7 @@ Learn more about [Drizzle Studio](https://orm.drizzle.team/kit-docs/overview#dri
 ### Todo
 
 - [ ] nice frontend to display the results from the DB, maybe using Hono?
+
+### Gemini Code Review
+
+This repository includes an automated code review system powered by Google's Gemini AI. See [docs/GEMINI_REVIEW.md](docs/GEMINI_REVIEW.md) for details on setup and usage.
