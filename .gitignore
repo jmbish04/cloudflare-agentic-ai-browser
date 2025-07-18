@@ -171,3 +171,6 @@ dist
 .dev.vars
 
 .wrangler
+
+# Static assets are now embedded in TypeScript, so exclude the individual files
+static/
