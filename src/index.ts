@@ -564,9 +564,7 @@ app.post("/", async (c) => {
 
 const handler = {
   fetch: app.fetch,
-
-    const url = new URL(request.url);
-    const path = url.pathname;
+} satisfies ExportedHandler<Env>;
 
     // Handle API routes
     if (path.startsWith('/api/jobs')) {
