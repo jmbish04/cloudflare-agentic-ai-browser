@@ -174,3 +174,13 @@ dist
 
 # Static assets are now embedded in TypeScript, so exclude the individual files
 static/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Gemini review outputs
+gemini_review_output.md
