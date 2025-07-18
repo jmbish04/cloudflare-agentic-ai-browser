@@ -21,6 +21,15 @@ import {
   PROGRESS_JS
 } from "./static-assets";
 
+// Constants
+const BROWSER_WIDTH = 1920;
+const BROWSER_HEIGHT = 1080;
+const KEEP_BROWSER_ALIVE_IN_SECONDS = 180;
+const DEFAULT_PAGE_TIMEOUT_MS = 20000; // Increased timeout
+const UI_UPDATE_WAIT_MS = 1000;
+const RADIX_DECIMAL = 10;
+const BROWSER_IDLE_TIMEOUT_SECONDS = 300; // 5 minutes
+
 const app = new Hono<{ Bindings: Env }>();
 
 // Static asset routes
@@ -53,16 +62,21 @@ app.get("/", async (c) => {
 });
 
 app.get("/job/:id", async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
-  if (isNaN(id)) return c.html("Invalid job ID", 400);
+  const id = parseInt(c.req.param("id"), RADIX_DECIMAL);
+  if (isNaN(id)) {
+    return c.html("Invalid job ID", 400);
+  }
 
   const db = new Database(c.env);
   const job = await db.getJob(id);
-  if (!job) return c.html("Job not found", 404);
+  if (!job) {
+    return c.html("Job not found", 404);
+  }
 
   const completionInfo = job.completedAt ? `<div class="info-group"><div class="info-label">Completed:</div><div class="info-value">${job.completedAt}</div></div>` : '';
   const outputInfo = job.output ? `<div class="info-group"><div class="info-label">Result:</div><div class="output">${job.output}</div></div>` : '';
   const logInfo = job.log ? `<div class="info-group"><div class="info-label">Execution Log:</div><div class="logs">${job.log}</div></div>` : '';
+  const refreshScript = job.status === 'running' ? `<script>setTimeout(() => { window.location.reload(); }, ${JOB_STATUS_POLL_INTERVAL_MS});</script>` : '';
 
   const htmlContent = renderTemplate(JOB_DETAIL_TEMPLATE, {
     JOB_ID: job.id.toString(),
@@ -73,22 +87,31 @@ app.get("/job/:id", async (c) => {
     COMPLETION_INFO: completionInfo,
     OUTPUT_INFO: outputInfo,
     LOG_INFO: logInfo,
+    REFRESH_SCRIPT: refreshScript
   });
   return c.html(htmlContent);
 });
 
 app.get("/progress", async (c) => {
-  const htmlContent = renderTemplate(PROGRESS_TEMPLATE, {});
-  return c.html(htmlContent);
+    const jobId = c.req.query('jobId');
+    if (!jobId) {
+        return c.html('<p>No job ID provided. <a href="/">Return to dashboard</a></p>', 400);
+    }
+    const htmlContent = renderTemplate(PROGRESS_TEMPLATE, { JOB_ID: jobId });
+    return c.html(htmlContent);
 });
 
 // API routes
 app.post("/api/jobs", async (c) => {
   const { success } = await c.env.RATE_LIMITER.limit({ key: c.req.header("CF-Connecting-IP") ?? "local" });
-  if (!success) return c.json({ error: "Rate limit exceeded" }, 429);
+  if (!success) {
+    return c.json({ error: "Rate limit exceeded" }, 429);
+  }
 
   const data: { baseUrl?: string; goal?: string } = await c.req.json();
-  if (!data.baseUrl || !data.goal) return c.json({ error: "Base URL and Goal are required" }, 400);
+  if (!data.baseUrl || !data.goal) {
+    return c.json({ error: "Base URL and Goal are required" }, 400);
+  }
 
   const db = new Database(c.env);
   const job = await db.insertJob(data.goal, data.baseUrl);
@@ -112,15 +135,17 @@ app.get("/api/jobs", async (c) => {
 });
 
 app.get("/api/jobs/:id", async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
-  if (isNaN(id)) return c.json({ error: "Invalid job ID" }, 400);
+  const id = parseInt(c.req.param("id"), RADIX_DECIMAL);
+  if (isNaN(id)) {
+    return c.json({ error: "Invalid job ID" }, 400);
+  }
   const db = new Database(c.env);
   const job = await db.getJob(id);
   if (!job) return c.json({ error: "Job not found" }, 404);
   return c.json(job);
 });
 
-// Legacy POST route
+// Legacy POST route for streaming logs
 app.post("/", async (c) => {
   const { success } = await c.env.RATE_LIMITER.limit({ key: c.req.header("CF-Connecting-IP") ?? "local" });
   if (!success) return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
@@ -132,8 +157,6 @@ app.post("/", async (c) => {
 export default {
   fetch: app.fetch,
 };
-
-const BROWSER_IDLE_TIMEOUT_SECONDS = 300; // 5 minutes
 
 export class Browser {
   keptAliveInSeconds: number = 0;
@@ -158,29 +181,32 @@ export class Browser {
   async fetch(request: Request) {
     const data: { baseUrl?: string; goal?: string; jobId?: number } = await request.json().catch(() => ({}));
 
+    // This path handles async job execution initiated by /api/jobs
     if (data.jobId && data.baseUrl && data.goal) {
       this.state.waitUntil(this.executeJob(data.jobId, data.baseUrl, data.goal));
       return new Response("Job execution started.", { status: 202 });
     }
 
+    // This path handles the legacy streaming endpoint
     if (data.baseUrl && data.goal) {
       const { readable, writable } = new TransformStream();
       const writer = writable.getWriter();
       const textEncoder = new TextEncoder();
       const log = (msg: string) => writer.write(textEncoder.encode(`${msg}\n`));
-      
-      const { id } = await this.db.insertJob(data.goal, data.baseUrl);
-      
+
+      const job = await this.db.insertJob(data.goal, data.baseUrl);
+
       this.state.waitUntil(
-        this.executeJobWithLogs(id, data.baseUrl, data.goal, log)
+        this.executeJobWithLogs(job.id, data.baseUrl, data.goal, log)
           .catch(async (error: any) => {
-            log(`Job ${id} failed: ${error.message}`);
-            await this.db.updateJobStatus(id, "failed");
+            log(`Job ${job.id} failed: ${error.message}`);
+            await this.db.updateJobStatus(job.id, "failed");
           })
           .finally(() => writer.close())
       );
       return new Response(readable);
     }
+
     return new Response("Invalid request.", { status: 400 });
   }
 
@@ -203,11 +229,10 @@ export class Browser {
   }
 
   private async executeJobWithLogs(jobId: number, baseUrl: string, goal: string, log: (msg: string) => void) {
-    // Reset inactivity timer for each job run
-    this.keptAliveInSeconds = 0;
-    
+    this.keptAliveInSeconds = 0; // Reset inactivity timer for each job run
+
     await this.db.updateJobStatus(jobId, "running");
-    
+
     const logs: string[] = [];
     const logAndStore = (msg: string) => {
       log(msg);
@@ -220,19 +245,19 @@ export class Browser {
       // Set the first alarm only when a browser is launched
       await this.storage.setAlarm(Date.now() + 60 * 1000); // Check in 1 minute
     }
-    
+
     const page = await this.browser.newPage();
     try {
-      await page.setViewport({ width: 1920, height: 1080 });
-      page.setDefaultNavigationTimeout(20000);
-      page.setDefaultTimeout(15000);
-      
+      await page.setViewport({ width: BROWSER_WIDTH, height: BROWSER_HEIGHT });
+      page.setDefaultNavigationTimeout(DEFAULT_PAGE_TIMEOUT_MS);
+      page.setDefaultTimeout(DEFAULT_ACTION_TIMEOUT_MS);
+
       logAndStore(`Navigating to ${baseUrl}...`);
       await page.goto(baseUrl, { waitUntil: 'networkidle2' });
-      
+
       const initialHtml = await getCleanHtml(page);
       logAndStore(`Page loaded. HTML size: ${initialHtml.length} chars.`);
-      
+
       const messages: ChatCompletionMessageParam[] = [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Goal: ${goal}\n${initialHtml}` }
@@ -257,11 +282,11 @@ export class Browser {
           messages: removeHtmlsFromMessages(messages),
           tools,
         });
-        
+
         const newMessage = completion.choices[0].message;
         messages.push(newMessage);
         await this.db.updateJob(jobId, messages, logs.join('\n'), new Date().toISOString());
-        
+
         if (!newMessage.tool_calls) break;
 
         for (const toolCall of newMessage.tool_calls) {
@@ -274,7 +299,7 @@ export class Browser {
               case "type": await page.type(parsedArg.selector, parsedArg.value); break;
               case "select": await page.select(parsedArg.selector, parsedArg.value); break;
             }
-            await page.waitForTimeout(1000);
+            await page.waitForTimeout(UI_UPDATE_WAIT_MS);
             logAndStore(`Action '${functionCall.name}' succeeded.`);
             messages.push({ role: "tool", content: await getCleanHtml(page), tool_call_id: toolCall.id });
           } catch (error: any) {
@@ -290,27 +315,29 @@ export class Browser {
       await this.db.finalizeJob(jobId, finalAnswer, messages, logs.join('\n'), new Date().toISOString(), "success");
     } finally {
       await page.close();
+      this.keptAliveInSeconds = 0; // Reset timer after job
     }
   }
 
   private async storeScreenshot(page: puppeteer.Page, jobId: number, suffix: string) {
-    const screenshotData = await page.screenshot({type: "jpeg", quality: 70});
+    const screenshotData = await page.screenshot({ type: "jpeg", quality: SCREENSHOT_JPEG_QUALITY });
     const key = `${jobId}/${suffix}-${new Date().toISOString()}.jpeg`;
     await this.env.BROWSER_AGENT_BUCKET.put(key, screenshotData);
     return { key };
   }
-  
+
   async alarm() {
     this.keptAliveInSeconds += 60; // We're checking every 60 seconds
 
-    // If there's no browser, there's nothing to do.
     if (!this.browser) {
-        return;
+      return;
     }
 
     if (this.keptAliveInSeconds > BROWSER_IDLE_TIMEOUT_SECONDS) {
       console.log(`Browser DO: Closing browser due to inactivity after ${this.keptAliveInSeconds} seconds.`);
-      await this.browser.close();
+      if (this.browser.isConnected()) {
+        await this.browser.close();
+      }
       this.browser = null;
     } else {
       console.log(`Browser DO: Browser is idle for ${this.keptAliveInSeconds} seconds. Scheduling next check...`);
