@@ -4,11 +4,8 @@ interface Env {
 	SERVICE_NAME: "cloudflare-agentic-ai-browser";
 	logpush: true;
 	tail_consumers: [{"service":"cloudflare-agentic-ai-browser-tail","environment":"undefined"}];
-	BROWSER: DurableObjectNamespace<import("./src/index").Browser>;
+	BROWSER: DurableObjectNamespace /* Browser */;
 	BUCKET: R2Bucket;
 	DB: D1Database;
 	RATE_LIMITER: RateLimit;
-	MYBROWSER: Fetcher;
-	OPENAI_API_KEY: string;
-	ACCOUNT_ID: string;
 }
