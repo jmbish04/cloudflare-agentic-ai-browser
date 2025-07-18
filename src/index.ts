@@ -64,90 +64,104 @@ app.get("/static/js/progress.js", (c) => {
 
 // Frontend routes
 app.get("/", async (c) => {
-  const db = new Database(c.env);
-  const jobs = await db.getAllJobs();
-  
-  const jobsContent = jobs.length === 0 
-    ? '<p>No jobs yet. Create your first browser automation request above!</p>'
-    : jobs.map(job => `
-        <div class="job" onclick="viewJob(${job.id})">
-          <div class="job-header">
-            <span class="job-id">Job #${job.id}</span>
-            <span class="job-status status-${job.status}">${job.status}</span>
+  try {
+    const db = new Database(c.env);
+    const jobs = await db.getAllJobs();
+    
+    const jobsContent = jobs.length === 0 
+      ? '<p>No jobs yet. Create your first browser automation request above!</p>'
+      : jobs.map(job => `
+          <div class="job" onclick="viewJob(${job.id})">
+            <div class="job-header">
+              <span class="job-id">Job #${job.id}</span>
+              <span class="job-status status-${job.status}">${job.status}</span>
+            </div>
+            <div class="job-goal"><strong>Goal:</strong> ${job.goal}</div>
+            <div class="job-url"><strong>URL:</strong> ${job.startingUrl}</div>
+            <div class="job-time"><strong>Created:</strong> ${job.createdAt}</div>
           </div>
-          <div class="job-goal"><strong>Goal:</strong> ${job.goal}</div>
-          <div class="job-url"><strong>URL:</strong> ${job.startingUrl}</div>
-          <div class="job-time"><strong>Created:</strong> ${job.createdAt}</div>
-        </div>
-      `).join('');
+        `).join('');
 
-  const htmlContent = renderTemplate(DASHBOARD_TEMPLATE, {
-    JOBS_CONTENT: jobsContent
-  });
+    const htmlContent = renderTemplate(DASHBOARD_TEMPLATE, {
+      JOBS_CONTENT: jobsContent
+    });
 
-  return c.html(htmlContent);
+    return c.html(htmlContent);
+  } catch (error) {
+    console.error("Error loading dashboard:", error);
+    return c.html("<h1>Error loading dashboard</h1><p>Please try again later.</p>", 500);
+  }
 });
 
 // Job detail page
 app.get("/job/:id", async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
-  const db = new Database(c.env);
-  const job = await db.getJob(id);
-  
-  if (!job) {
-    return c.html("Job not found", 404);
+  try {
+    const id = parseInt(c.req.param("id"), 10);
+    if (isNaN(id)) {
+      return c.html("<h1>Invalid Job ID</h1><p>The job ID must be a valid number.</p>", 400);
+    }
+    
+    const db = new Database(c.env);
+    const job = await db.getJob(id);
+    
+    if (!job) {
+      return c.html("<h1>Job Not Found</h1><p>The requested job could not be found.</p>", 404);
+    }
+    
+    const autoRefreshScript = job.status === 'running' 
+      ? '<script>setTimeout(() => { window.location.reload(); }, 5000);</script>'
+      : '';
+      
+    const refreshButton = job.status === 'running'
+      ? '<button onclick="window.location.reload()" class="refresh-btn">Refresh</button>'
+      : '';
+      
+    const completionInfo = job.completedAt 
+      ? `<div class="info-group">
+           <div class="info-label">Completed:</div>
+           <div class="info-value">${job.completedAt}</div>
+         </div>`
+      : '';
+      
+    const outputInfo = job.output
+      ? `<div class="info-group">
+           <div class="info-label">Result:</div>
+           <div class="output">${job.output}</div>
+         </div>`
+      : '';
+      
+    const logInfo = job.log
+      ? `<div class="info-group">
+           <div class="info-label">Execution Log:</div>
+           <div class="logs">${job.log}</div>
+         </div>`
+      : '';
+      
+    const runningNotice = job.status === 'running'
+      ? `<div style="margin-top: 20px; padding: 10px; background: #fff3cd; border-radius: 4px; color: #856404;">
+           <strong>Job is running...</strong> This page will auto-refresh every 5 seconds.
+         </div>`
+      : '';
+
+    const htmlContent = renderTemplate(JOB_DETAIL_TEMPLATE, {
+      JOB_ID: job.id.toString(),
+      JOB_STATUS: job.status,
+      JOB_GOAL: job.goal,
+      JOB_URL: job.startingUrl,
+      JOB_CREATED: job.createdAt,
+      AUTO_REFRESH_SCRIPT: autoRefreshScript,
+      REFRESH_BUTTON: refreshButton,
+      COMPLETION_INFO: completionInfo,
+      OUTPUT_INFO: outputInfo,
+      LOG_INFO: logInfo,
+      RUNNING_NOTICE: runningNotice
+    });
+
+    return c.html(htmlContent);
+  } catch (error) {
+    console.error("Error loading job detail:", error);
+    return c.html("<h1>Error loading job</h1><p>Please try again later.</p>", 500);
   }
-  
-  const autoRefreshScript = job.status === 'running' 
-    ? '<script>setTimeout(() => { window.location.reload(); }, 5000);</script>'
-    : '';
-    
-  const refreshButton = job.status === 'running'
-    ? '<button onclick="window.location.reload()" class="refresh-btn">Refresh</button>'
-    : '';
-    
-  const completionInfo = job.completedAt 
-    ? `<div class="info-group">
-         <div class="info-label">Completed:</div>
-         <div class="info-value">${job.completedAt}</div>
-       </div>`
-    : '';
-    
-  const outputInfo = job.output
-    ? `<div class="info-group">
-         <div class="info-label">Result:</div>
-         <div class="output">${job.output}</div>
-       </div>`
-    : '';
-    
-  const logInfo = job.log
-    ? `<div class="info-group">
-         <div class="info-label">Execution Log:</div>
-         <div class="logs">${job.log}</div>
-       </div>`
-    : '';
-    
-  const runningNotice = job.status === 'running'
-    ? `<div style="margin-top: 20px; padding: 10px; background: #fff3cd; border-radius: 4px; color: #856404;">
-         <strong>Job is running...</strong> This page will auto-refresh every 5 seconds.
-       </div>`
-    : '';
-
-  const htmlContent = renderTemplate(JOB_DETAIL_TEMPLATE, {
-    JOB_ID: job.id.toString(),
-    JOB_STATUS: job.status,
-    JOB_GOAL: job.goal,
-    JOB_URL: job.startingUrl,
-    JOB_CREATED: job.createdAt,
-    AUTO_REFRESH_SCRIPT: autoRefreshScript,
-    REFRESH_BUTTON: refreshButton,
-    COMPLETION_INFO: completionInfo,
-    OUTPUT_INFO: outputInfo,
-    LOG_INFO: logInfo,
-    RUNNING_NOTICE: runningNotice
-  });
-
-  return c.html(htmlContent);
 });
 
 // Progress page for new jobs
@@ -158,52 +172,71 @@ app.get("/progress", async (c) => {
 
 // API routes
 app.post("/api/jobs", async (c) => {
-  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
-  if (!success) {
-    return c.json({ error: "Rate limit exceeded" }, 429);
-  }
+  try {
+    const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
+    if (!success) {
+      return c.json({ error: "Rate limit exceeded" }, 429);
+    }
 
-  const data: { baseUrl?: string; goal?: string } = await c.req.json();
-  const baseUrl = data.baseUrl ?? "https://bubble.io";
-  const goal = data.goal ?? "Extract pricing model for this company";
-  
-  const db = new Database(c.env);
-  const job = await db.insertJob(goal, baseUrl);
-  
-  // Start job execution asynchronously
-  const id = c.env.BROWSER.idFromName("browser");
-  const obj = c.env.BROWSER.get(id);
-  
-  // Don't await this - let it run in the background
-  obj.fetch(new Request(c.req.url, {
-    method: 'POST',
-    body: JSON.stringify({ jobId: job.id, baseUrl, goal }),
-    headers: { 'Content-Type': 'application/json' }
-  }));
-  
-  return c.json({ 
-    jobId: job.id,
-    status: 'pending',
-    createdAt: job.createdAt
-  });
+    const data: { baseUrl?: string; goal?: string } = await c.req.json();
+    const baseUrl = data.baseUrl ?? "https://bubble.io";
+    const goal = data.goal ?? "Extract pricing model for this company";
+    
+    const db = new Database(c.env);
+    const job = await db.insertJob(goal, baseUrl);
+    
+    // Start job execution asynchronously
+    const id = c.env.BROWSER.idFromName("browser");
+    const obj = c.env.BROWSER.get(id);
+    
+    // Don't await this - let it run in the background
+    obj.fetch(new Request(c.req.url, {
+      method: 'POST',
+      body: JSON.stringify({ jobId: job.id, baseUrl, goal }),
+      headers: { 'Content-Type': 'application/json' }
+    }));
+    
+    return c.json({ 
+      jobId: job.id,
+      status: 'pending',
+      createdAt: job.createdAt
+    });
+  } catch (error) {
+    console.error("Error creating job:", error);
+    return c.json({ error: "Failed to create job" }, 500);
+  }
 });
 
 app.get("/api/jobs", async (c) => {
-  const db = new Database(c.env);
-  const jobs = await db.getAllJobs();
-  return c.json(jobs);
+  try {
+    const db = new Database(c.env);
+    const jobs = await db.getAllJobs();
+    return c.json(jobs);
+  } catch (error) {
+    console.error("Error fetching jobs:", error);
+    return c.json({ error: "Failed to fetch jobs" }, 500);
+  }
 });
 
 app.get("/api/jobs/:id", async (c) => {
-  const id = parseInt(c.req.param("id"));
-  const db = new Database(c.env);
-  const job = await db.getJob(id);
-  
-  if (!job) {
-    return c.json({ error: "Job not found" }, 404);
+  try {
+    const id = parseInt(c.req.param("id"));
+    if (isNaN(id)) {
+      return c.json({ error: "Invalid job ID" }, 400);
+    }
+    
+    const db = new Database(c.env);
+    const job = await db.getJob(id);
+    
+    if (!job) {
+      return c.json({ error: "Job not found" }, 404);
+    }
+    
+    return c.json(job);
+  } catch (error) {
+    console.error("Error fetching job:", error);
+    return c.json({ error: "Failed to fetch job" }, 500);
   }
-  
-  return c.json(job);
 });
 
 // Legacy POST route for backwards compatibility
@@ -255,12 +288,22 @@ export class Browser {
   }
 
   async fetch(request: Request) {
-    const data: { baseUrl?: string; goal?: string; jobId?: number } = await request.json();
+    let data: { baseUrl?: string; goal?: string; jobId?: number };
+    
+    try {
+      data = await request.json();
+    } catch (error) {
+      console.error("Error parsing request:", error);
+      return new Response("Invalid request format", { status: 400 });
+    }
     
     // Check if this is a new API request with jobId
     if (data.jobId) {
       // This is an async job execution request
-      await this.executeJob(data.jobId, data.baseUrl!, data.goal!);
+      if (!data.baseUrl || !data.goal) {
+        return new Response("Missing required parameters", { status: 400 });
+      }
+      await this.executeJob(data.jobId, data.baseUrl, data.goal);
       return new Response("Job execution started", { status: 200 });
     }
 

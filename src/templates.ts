@@ -124,6 +124,18 @@ export const PROGRESS_TEMPLATE = `<!DOCTYPE html>
 </html>`;
 
 /**
+ * Escapes HTML special characters to prevent XSS attacks
+ */
+function escapeHtml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
  * Simple template renderer that replaces {{PLACEHOLDER}} with values
  */
 export function renderTemplate(template: string, data: Record<string, string>): string {
@@ -131,7 +143,9 @@ export function renderTemplate(template: string, data: Record<string, string>): 
   
   for (const [key, value] of Object.entries(data)) {
     const placeholder = `{{${key}}}`;
-    result = result.replace(new RegExp(placeholder, 'g'), value || '');
+    // Escape HTML unless it's a trusted HTML fragment (contains HTML tags)
+    const escapedValue = (value && value.includes('<') && value.includes('>')) ? value : escapeHtml(value || '');
+    result = result.replace(new RegExp(placeholder, 'g'), escapedValue);
   }
   
   return result;
