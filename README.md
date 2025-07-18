@@ -39,7 +39,7 @@ pnpm run deploy
 
 curl -X POST \
   <URL to your deployed worker> \
-  -d '{"baseUrl": "https://chatwithcloud.ai", "goal": "Extract pricing data" }' \ # Replace with your URL and goal
+  -d '{"baseUrl": "https://cloudflare-agentic-ai-browser.hacolby.workers.dev", "goal": "Extract pricing data" }' \ # Replace with your URL and goal
   --no-buffer
 ```
 
