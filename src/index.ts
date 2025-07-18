@@ -320,7 +320,7 @@ export class Browser {
   }
 
   private async storeScreenshot(page: puppeteer.Page, jobId: number, suffix: string) {
-    const screenshotData = await page.screenshot({ type: "jpeg", quality: 70 });
+    const screenshotData = await page.screenshot({ type: "jpeg", quality: SCREENSHOT_JPEG_QUALITY });
     const key = `${jobId}/${suffix}-${new Date().toISOString()}.jpeg`;
     await this.env.BROWSER_AGENT_BUCKET.put(key, screenshotData);
     return { key };
