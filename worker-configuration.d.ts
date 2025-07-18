@@ -8,7 +8,4 @@ interface Env {
 	BUCKET: R2Bucket;
 	DB: D1Database;
 	RATE_LIMITER: RateLimit;
-	MYBROWSER: Fetcher;
-	OPENAI_API_KEY: string;
-	ACCOUNT_ID: string;
 }
