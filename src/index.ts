@@ -1,7 +1,10 @@
 import puppeteer from "@cloudflare/puppeteer";
 import OpenAI from "openai";
 import { ChatCompletion, ChatCompletionMessageParam } from "openai/resources";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { tools } from "./tools";
+import { geminiTools } from "./gemini-tools";
+import { convertOpenAIMessagesToGemini, extractGeminiFunctionCalls, getGeminiTextResponse } from "./gemini-utils";
 import { systemPrompt } from "./prompts";
 import { getCleanHtml, removeHtmlsFromMessages } from "./utils";
 import { Database } from "./db";
@@ -217,6 +220,13 @@ app.get("/", async (c) => {
               <label for="goal">Goal:</label>
               <textarea id="goal" name="goal" required placeholder="Extract pricing information from this website"></textarea>
             </div>
+            <div class="form-group">
+              <label for="aiProvider">AI Provider:</label>
+              <select id="aiProvider" name="aiProvider" required>
+                <option value="openai">OpenAI GPT-4o</option>
+                <option value="gemini">Google Gemini Pro</option>
+              </select>
+            </div>
             <button type="submit">Start Browser Agent</button>
           </form>
         </div>
@@ -250,6 +260,7 @@ app.get("/", async (c) => {
             const formData = new FormData(event.target);
             const baseUrl = formData.get('baseUrl');
             const goal = formData.get('goal');
+            const aiProvider = formData.get('aiProvider');
             
             const button = event.target.querySelector('button');
             button.disabled = true;
@@ -262,7 +273,7 @@ app.get("/", async (c) => {
                 headers: {
                   'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ baseUrl, goal })
+                body: JSON.stringify({ baseUrl, goal, aiProvider })
               });
               
               if (response.ok) {
@@ -324,7 +335,6 @@ app.get("/job/:id", async (c) => {
     return c.html("Job not found", 404);
   }
   
-
   return c.html(html`
     <!DOCTYPE html>
     <html lang="en">
@@ -423,68 +433,76 @@ app.get("/job/:id", async (c) => {
             background: #218838;
           }
         </style>
-        <script>
-          // Auto-refresh for running jobs
-          ${job.status === 'running' ? `
+        ${job.status === 'running' ? html`
+          <script>
             setTimeout(() => {
               window.location.reload();
             }, 5000);
-          ` : ''}
-        </script>
+          </script>
+        ` : ''}
       </head>
       <body>
         <a href="/" class="back-link">← Back to Dashboard</a>
-
-  const autoRefreshScript = job.status === 'running' 
-    ? '<script>setTimeout(() => { window.location.reload(); }, 5000);</script>'
-    : '';
-    
-  const refreshButton = job.status === 'running'
-    ? '<button onclick="window.location.reload()" class="refresh-btn">Refresh</button>'
-    : '';
-    
-  const completionInfo = job.completedAt 
-    ? `<div class="info-group">
-         <div class="info-label">Completed:</div>
-         <div class="info-value">${job.completedAt}</div>
-       </div>`
-    : '';
-    
-  const outputInfo = job.output
-    ? `<div class="info-group">
-         <div class="info-label">Result:</div>
-         <div class="output">${job.output}</div>
-       </div>`
-    : '';
-    
-  const logInfo = job.log
-    ? `<div class="info-group">
-         <div class="info-label">Execution Log:</div>
-         <div class="logs">${job.log}</div>
-       </div>`
-    : '';
-    
-  const runningNotice = job.status === 'running'
-    ? `<div style="margin-top: 20px; padding: 10px; background: #fff3cd; border-radius: 4px; color: #856404;">
-         <strong>Job is running...</strong> This page will auto-refresh every 5 seconds.
-       </div>`
-    : '';
-
-  const htmlContent = renderTemplate(JOB_DETAIL_TEMPLATE, {
-    JOB_ID: job.id.toString(),
-    JOB_STATUS: job.status,
-    JOB_GOAL: job.goal,
-    JOB_URL: job.startingUrl,
-    JOB_CREATED: job.createdAt,
-    AUTO_REFRESH_SCRIPT: autoRefreshScript,
-    REFRESH_BUTTON: refreshButton,
-    COMPLETION_INFO: completionInfo,
-    OUTPUT_INFO: outputInfo,
-    LOG_INFO: logInfo,
-    RUNNING_NOTICE: runningNotice
-  });
-
-  return c.html(htmlContent);
+        
+        <div class="container">
+          <div class="job-header">
+            <h1>Job #${job.id}</h1>
+            <div>
+              <span class="job-status status-${job.status}">${job.status}</span>
+              ${job.status === 'running' ? html`<button onclick="window.location.reload()" class="refresh-btn">Refresh</button>` : ''}
+            </div>
+          </div>
+          
+          <div class="info-group">
+            <div class="info-label">AI Provider:</div>
+            <div class="info-value">${job.aiProvider || 'openai'}</div>
+          </div>
+          
+          <div class="info-group">
+            <div class="info-label">Goal:</div>
+            <div class="info-value">${job.goal}</div>
+          </div>
+          
+          <div class="info-group">
+            <div class="info-label">Starting URL:</div>
+            <div class="info-value"><a href="${job.startingUrl}" target="_blank">${job.startingUrl}</a></div>
+          </div>
+          
+          <div class="info-group">
+            <div class="info-label">Created:</div>
+            <div class="info-value">${job.createdAt}</div>
+          </div>
+          
+          ${job.completedAt ? html`
+            <div class="info-group">
+              <div class="info-label">Completed:</div>
+              <div class="info-value">${job.completedAt}</div>
+            </div>
+          ` : ''}
+          
+          ${job.output ? html`
+            <div class="info-group">
+              <div class="info-label">Result:</div>
+              <div class="output">${job.output}</div>
+            </div>
+          ` : ''}
+          
+          ${job.log ? html`
+            <div class="info-group">
+              <div class="info-label">Execution Log:</div>
+              <div class="logs">${job.log}</div>
+            </div>
+          ` : ''}
+          
+          ${job.status === 'running' ? html`
+            <div style="margin-top: 20px; padding: 10px; background: #fff3cd; border-radius: 4px; color: #856404;">
+              <strong>Job is running...</strong> This page will auto-refresh every 5 seconds.
+            </div>
+          ` : ''}
+        </div>
+      </body>
+    </html>
+  `);
 });
 
 // Progress page for new jobs
@@ -794,12 +812,13 @@ app.post("/api/jobs", async (c) => {
     return c.json({ error: "Rate limit exceeded" }, 429);
   }
 
-  const data: { baseUrl?: string; goal?: string } = await c.req.json();
+  const data: { baseUrl?: string; goal?: string; aiProvider?: string } = await c.req.json();
   const baseUrl = data.baseUrl ?? "https://bubble.io";
   const goal = data.goal ?? "Extract pricing model for this company";
+  const aiProvider = data.aiProvider ?? "openai";
   
   const db = new Database(c.env);
-  const job = await db.insertJob(goal, baseUrl);
+  const job = await db.insertJob(goal, baseUrl, aiProvider);
   
   // Start job execution asynchronously
   const id = c.env.BROWSER.idFromName("browser");
@@ -808,7 +827,7 @@ app.post("/api/jobs", async (c) => {
   // Don't await this - let it run in the background
   obj.fetch(new Request(c.req.url, {
     method: 'POST',
-    body: JSON.stringify({ jobId: job.id, baseUrl, goal }),
+    body: JSON.stringify({ jobId: job.id, baseUrl, goal, aiProvider }),
     headers: { 'Content-Type': 'application/json' }
   }));
   
@@ -878,6 +897,7 @@ export class Browser {
   private state: DurableObjectState;
   private storage: DurableObjectStorage;
   private openai: OpenAI;
+  private gemini: GoogleGenerativeAI;
   private db: Database;
 
   constructor(state: DurableObjectState, env: Env) {
@@ -889,16 +909,17 @@ export class Browser {
       apiKey: env.OPENAI_API_KEY,
       baseURL: `https://gateway.ai.cloudflare.com/v1/${env.ACCOUNT_ID}/agentic-browser-ai-gateway/openai`,
     });
+    this.gemini = new GoogleGenerativeAI(env.GEMINI_API_KEY);
     this.db = new Database(env);
   }
 
   async fetch(request: Request) {
-    const data: { baseUrl?: string; goal?: string; jobId?: number } = await request.json();
+    const data: { baseUrl?: string; goal?: string; jobId?: number; aiProvider?: string } = await request.json();
     
     // Check if this is a new API request with jobId
     if (data.jobId) {
       // This is an async job execution request
-      await this.executeJob(data.jobId, data.baseUrl!, data.goal!);
+      await this.executeJob(data.jobId, data.baseUrl!, data.goal!, data.aiProvider || "openai");
       return new Response("Job execution started", { status: 200 });
     }
 
@@ -1055,7 +1076,7 @@ export class Browser {
     return new Response(readable);
   }
 
-  private async executeJob(jobId: number, baseUrl: string, goal: string) {
+  private async executeJob(jobId: number, baseUrl: string, goal: string, aiProvider: string = "openai") {
     try {
       await this.db.updateJobStatus(jobId, "running");
 
@@ -1110,7 +1131,8 @@ export class Browser {
         console.log(`Job ${jobId}: ${fullMsg}`);
       };
 
-      let completion: ChatCompletion;
+      let completion: ChatCompletion | any;
+      let toolCalls: any[] = [];
 
       do {
         const messagesSanitized = removeHtmlsFromMessages(messages);
@@ -1118,24 +1140,64 @@ export class Browser {
         const r2Obj = await this.storeScreenshot(page, folder);
         log(`Stored screenshot at ${r2Obj.key}. Thinking about next step...`);
 
-        completion = await this.openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: messagesSanitized,
-          tools,
-        });
+        if (aiProvider === "gemini") {
+          const model = this.gemini.getGenerativeModel({ 
+            model: "gemini-pro",
+            tools: [{ functionDeclarations: geminiTools }]
+          });
+          
+          const geminiMessages = convertOpenAIMessagesToGemini(messagesSanitized);
+          const chat = model.startChat({
+            history: geminiMessages.slice(0, -1),
+          });
+          
+          const result = await chat.sendMessage(geminiMessages[geminiMessages.length - 1]?.parts[0]?.text || "");
+          
+          // Extract function calls from Gemini response
+          const geminiFunctionCalls = extractGeminiFunctionCalls(result);
+          const textResponse = getGeminiTextResponse(result);
+          
+          // Convert to OpenAI format for compatibility
+          completion = {
+            choices: [{
+              message: {
+                content: textResponse,
+                tool_calls: geminiFunctionCalls.map(fc => ({
+                  id: fc.id,
+                  type: "function",
+                  function: {
+                    name: fc.name,
+                    arguments: fc.arguments
+                  }
+                }))
+              }
+            }]
+          };
+          
+          toolCalls = completion.choices[0].message.tool_calls || [];
+        } else {
+          // OpenAI
+          completion = await this.openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: messagesSanitized,
+            tools,
+          });
+          
+          toolCalls = completion.choices[0].message.tool_calls || [];
+        }
+
         const newMessage = completion.choices[0].message;
 
         // Take just one. Hack to prevent parallel function calling
         if (newMessage.tool_calls && newMessage.tool_calls?.length > 0) {
           newMessage.tool_calls = [newMessage.tool_calls[0]];
+          toolCalls = [toolCalls[0]];
         }
 
         messages.push(newMessage);
 
         // Update job with current progress
         await this.db.updateJob(jobId, messages, logs, new Date().toISOString());
-
-        const toolCalls = completion.choices[0].message.tool_calls || [];
 
         for (const toolCall of toolCalls) {
           const functionCall = toolCall.function;

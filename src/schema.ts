@@ -16,4 +16,5 @@ export const jobs = sqliteTable("jobs", {
   output: text("output"),
   status: text("status").notNull().default("pending"),
   messages: text("messages"),
+  aiProvider: text("ai_provider").notNull().default("openai"), // New field for AI provider
 });
