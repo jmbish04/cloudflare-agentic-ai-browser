@@ -335,13 +335,10 @@ export class Browser {
       roundedDate.split(" GMT")[0] + "_" + baseUrl.replace("https://", "").replace("http://", "");
 
     // If there's a browser session open, re-use it
-    if (!this.browser || !this.browser.isConnected()) {
-      log(`Starting new browser instance`);
-      try {
-        this.browser = await puppeteer.launch(this.env.MYBROWSER);
-      } catch (e) {
-        log(`Could not start browser instance. Error: ${e}`);
-      }
+    if (!(await this.initializeBrowser())) {
+      log(`Could not start browser instance`);
+      writer.close();
+      return new Response(readable);
     }
 
     // Reset keptAlive after each call to the DO
@@ -402,18 +399,7 @@ export class Browser {
             log(`AI: ${parsedArg.reasoning} (${functionCall?.name} on ${parsedArg.selector})`);
 
             try {
-              switch (functionCall?.name) {
-                case "click":
-                  await page.click(parsedArg.selector, {});
-                  break;
-                case "type":
-                  await page.type(parsedArg.selector, parsedArg.value);
-                  break;
-                case "select":
-                  await page.select(parsedArg.selector, parsedArg.value);
-                  break;
-              }
-
+              await this.executeToolCall(page, functionCall, parsedArg);
               log(`Action ${functionCall?.name} on ${parsedArg.selector} succeeded`);
 
               // await page.waitForNavigation();
@@ -460,6 +446,41 @@ export class Browser {
     return new Response(readable);
   }
 
+  private async initializeBrowser(): Promise<boolean> {
+    if (!this.browser || !this.browser.isConnected()) {
+      try {
+        this.browser = await puppeteer.launch(this.env.MYBROWSER);
+        return true;
+      } catch (e) {
+        console.log(`Could not start browser instance. Error: ${e}`);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private async executeToolCall(
+    page: puppeteer.Page, 
+    functionCall: { name?: string } | undefined, 
+    parsedArg: { selector: string; value?: string; reasoning?: string }
+  ): Promise<void> {
+    switch (functionCall?.name) {
+      case "click":
+        await page.click(parsedArg.selector, {});
+        break;
+      case "type":
+        if (parsedArg.value) {
+          await page.type(parsedArg.selector, parsedArg.value);
+        }
+        break;
+      case "select":
+        if (parsedArg.value) {
+          await page.select(parsedArg.selector, parsedArg.value);
+        }
+        break;
+    }
+  }
+
   private async executeJob(jobId: number, baseUrl: string, goal: string) {
     try {
       await this.db.updateJobStatus(jobId, "running");
@@ -472,15 +493,9 @@ export class Browser {
         roundedDate.split(" GMT")[0] + "_" + baseUrl.replace("https://", "").replace("http://", "");
 
       // If there's a browser session open, re-use it
-      if (!this.browser || !this.browser.isConnected()) {
-        console.log(`Starting new browser instance for job ${jobId}`);
-        try {
-          this.browser = await puppeteer.launch(this.env.MYBROWSER);
-        } catch (e) {
-          console.log(`Could not start browser instance. Error: ${e}`);
-          await this.db.updateJobStatus(jobId, "failed");
-          return;
-        }
+      if (!(await this.initializeBrowser())) {
+        await this.db.updateJobStatus(jobId, "failed");
+        return;
       }
 
       // Reset keptAlive after each call to the DO
@@ -550,18 +565,7 @@ export class Browser {
           log(`AI: ${parsedArg.reasoning} (${functionCall?.name} on ${parsedArg.selector})`);
 
           try {
-            switch (functionCall?.name) {
-              case "click":
-                await page.click(parsedArg.selector, {});
-                break;
-              case "type":
-                await page.type(parsedArg.selector, parsedArg.value);
-                break;
-              case "select":
-                await page.select(parsedArg.selector, parsedArg.value);
-                break;
-            }
-
+            await this.executeToolCall(page, functionCall, parsedArg);
             log(`Action ${functionCall?.name} on ${parsedArg.selector} succeeded`);
 
             messages.push({
