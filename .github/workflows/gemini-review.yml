@@ -1,25 +1,25 @@
-name: Gemini Code Review
+# name: Gemini Code Review
 
-on:
-  pull_request:
-    types: [opened, synchronize]
+# on:
+#   pull_request:
+#     types: [opened, synchronize]
 
-jobs:
-  gemini_review:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+# jobs:
+#   gemini_review:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+#       - name: Set up Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: '3.10'
 
-      - name: Install dependencies
-        run: pip install requests
+#       - name: Install dependencies
+#         run: pip install requests
 
-      - name: Run Gemini Review Script
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python scripts/gemini_review.py
+#       - name: Run Gemini Review Script
+#         env:
+#           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+#         run: python scripts/gemini_review.py
