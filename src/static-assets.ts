@@ -132,6 +132,13 @@ textarea {
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 
+.jobs-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
 .job {
   border: 1px solid #eee;
   border-radius: 4px;
@@ -362,6 +369,9 @@ async function checkSpecificJob() {
       setTimeout(checkSpecificJob, POLLING_INTERVAL_MS);
     } else {
       document.getElementById('status').textContent = 'An error occurred while checking for the job. Please check the dashboard.';
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 3000);
     }
   }
 }`;
