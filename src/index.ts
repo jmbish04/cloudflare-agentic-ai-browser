@@ -7,11 +7,6 @@ import { getCleanHtml, removeHtmlsFromMessages } from "./utils";
 import { Database } from "./db";
 import { Hono } from "hono";
 import { html } from "hono/html";
-
-
-const app = new Hono<{ Bindings: Env }>();
-
-
 import { 
   DASHBOARD_TEMPLATE, 
   JOB_DETAIL_TEMPLATE, 
@@ -72,226 +67,6 @@ app.get("/", async (c) => {
   const db = new Database(c.env);
   const jobs = await db.getAllJobs();
   
-
-  return c.html(html`
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>AI Browser Agent Dashboard</title>
-        <style>
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f5f5f5;
-          }
-          .header {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-          }
-          .form-container {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-          }
-          .form-group {
-            margin-bottom: 15px;
-          }
-          label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: 500;
-          }
-          input, textarea {
-            width: 100%;
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-          }
-          textarea {
-            resize: vertical;
-            min-height: 80px;
-          }
-          button {
-            background: #007acc;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-          }
-          button:hover {
-            background: #005fa3;
-          }
-          .jobs-container {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-          }
-          .job {
-            border: 1px solid #eee;
-            border-radius: 4px;
-            padding: 15px;
-            margin-bottom: 10px;
-            cursor: pointer;
-          }
-          .job:hover {
-            background: #fafafa;
-          }
-          .job-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-          }
-          .job-id {
-            font-weight: bold;
-            color: #333;
-          }
-          .job-status {
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 500;
-          }
-          .status-running {
-            background: #fff3cd;
-            color: #856404;
-          }
-          .status-success {
-            background: #d4edda;
-            color: #155724;
-          }
-          .status-pending {
-            background: #cce5ff;
-            color: #004085;
-          }
-          .job-goal {
-            margin-bottom: 5px;
-            color: #555;
-          }
-          .job-url {
-            font-size: 12px;
-            color: #888;
-          }
-          .job-time {
-            font-size: 12px;
-            color: #888;
-          }
-          .refresh-btn {
-            margin-bottom: 20px;
-          }
-          .jobs-list-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>🤖 AI Browser Agent Dashboard</h1>
-          <p>Create browser automation requests and monitor their progress</p>
-        </div>
-
-        <div class="form-container">
-          <h2>Create New Request</h2>
-          <form id="newJobForm" onsubmit="submitJob(event)">
-            <div class="form-group">
-              <label for="baseUrl">Base URL:</label>
-              <input type="url" id="baseUrl" name="baseUrl" required placeholder="https://example.com" />
-            </div>
-            <div class="form-group">
-              <label for="goal">Goal:</label>
-              <textarea id="goal" name="goal" required placeholder="Extract pricing information from this website"></textarea>
-            </div>
-            <button type="submit">Start Browser Agent</button>
-          </form>
-        </div>
-
-        <div class="jobs-container">
-          <div class="jobs-list-header">
-            <h2>Job History</h2>
-            <button onclick="window.location.reload()" class="refresh-btn">Refresh</button>
-          </div>
-          
-          ${jobs.length === 0 ? 
-            html`<p>No jobs yet. Create your first browser automation request above!</p>` :
-            jobs.map(job => html`
-              <div class="job" onclick="viewJob(${job.id})">
-                <div class="job-header">
-                  <span class="job-id">Job #${job.id}</span>
-                  <span class="job-status status-${job.status}">${job.status}</span>
-                </div>
-                <div class="job-goal"><strong>Goal:</strong> ${job.goal}</div>
-                <div class="job-url"><strong>URL:</strong> ${job.startingUrl}</div>
-                <div class="job-time"><strong>Created:</strong> ${job.createdAt}</div>
-              </div>
-            `)
-          }
-        </div>
-
-        <script>
-          async function submitJob(event) {
-            event.preventDefault();
-            
-            const formData = new FormData(event.target);
-            const baseUrl = formData.get('baseUrl');
-            const goal = formData.get('goal');
-            
-            const button = event.target.querySelector('button');
-            button.disabled = true;
-            button.textContent = 'Starting...';
-            
-            try {
-              // Submit the job
-              const response = await fetch('/api/jobs', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ baseUrl, goal })
-              });
-              
-              if (response.ok) {
-                const jobData = await response.json();
-                // Open progress page with the specific job ID
-                window.open('/progress?jobId=' + jobData.jobId, '_blank');
-                
-                // Reset form and refresh page
-                event.target.reset();
-                setTimeout(() => window.location.reload(), 2000);
-              } else {
-                alert('Failed to create job');
-              }
-            } catch (error) {
-              alert('Error: ' + error.message);
-            } finally {
-              button.disabled = false;
-              button.textContent = 'Start Browser Agent';
-            }
-          }
-          
-          function viewJob(id) {
-            window.open('/job/' + id, '_blank');
-          }
-        </script>
-      </body>
-    </html>
-  `);
-
   const jobsContent = jobs.length === 0 
     ? '<p>No jobs yet. Create your first browser automation request above!</p>'
     : jobs.map(job => `
@@ -311,12 +86,16 @@ app.get("/", async (c) => {
   });
 
   return c.html(htmlContent);
-
 });
 
 // Job detail page
 app.get("/job/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
+  
+  if (isNaN(id)) {
+    return c.html("Invalid job ID", 400);
+  }
+  
   const db = new Database(c.env);
   const job = await db.getJob(id);
   
@@ -324,117 +103,6 @@ app.get("/job/:id", async (c) => {
     return c.html("Job not found", 404);
   }
   
-
-  return c.html(html`
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Job #${job.id} - AI Browser Agent</title>
-        <style>
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f5f5f5;
-          }
-          .container {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-          }
-          .job-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #eee;
-          }
-          .job-status {
-            padding: 6px 12px;
-            border-radius: 12px;
-            font-size: 14px;
-            font-weight: 500;
-          }
-          .status-running {
-            background: #fff3cd;
-            color: #856404;
-          }
-          .status-success {
-            background: #d4edda;
-            color: #155724;
-          }
-          .status-pending {
-            background: #cce5ff;
-            color: #004085;
-          }
-          .info-group {
-            margin-bottom: 20px;
-          }
-          .info-label {
-            font-weight: 500;
-            color: #333;
-            margin-bottom: 5px;
-          }
-          .info-value {
-            color: #666;
-            word-break: break-all;
-          }
-          .logs {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 12px;
-            white-space: pre-wrap;
-            max-height: 400px;
-            overflow-y: auto;
-            border: 1px solid #e9ecef;
-          }
-          .output {
-            background: #e8f5e8;
-            padding: 15px;
-            border-radius: 4px;
-            border: 1px solid #c3e6c3;
-          }
-          .back-link {
-            color: #007acc;
-            text-decoration: none;
-            margin-bottom: 20px;
-            display: inline-block;
-          }
-          .back-link:hover {
-            text-decoration: underline;
-          }
-          .refresh-btn {
-            background: #28a745;
-            color: white;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-          }
-          .refresh-btn:hover {
-            background: #218838;
-          }
-        </style>
-        <script>
-          // Auto-refresh for running jobs
-          ${job.status === 'running' ? `
-            setTimeout(() => {
-              window.location.reload();
-            }, 5000);
-          ` : ''}
-        </script>
-      </head>
-      <body>
-        <a href="/" class="back-link">← Back to Dashboard</a>
-
   const autoRefreshScript = job.status === 'running' 
     ? '<script>setTimeout(() => { window.location.reload(); }, 5000);</script>'
     : '';
