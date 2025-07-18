@@ -250,7 +250,7 @@ export class Browser {
     try {
       await page.setViewport({ width: BROWSER_WIDTH, height: BROWSER_HEIGHT });
       page.setDefaultNavigationTimeout(DEFAULT_PAGE_TIMEOUT_MS);
-      page.setDefaultTimeout(15000);
+      page.setDefaultTimeout(DEFAULT_ACTION_TIMEOUT_MS);
 
       logAndStore(`Navigating to ${baseUrl}...`);
       await page.goto(baseUrl, { waitUntil: 'networkidle2' });
