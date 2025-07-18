@@ -8,6 +8,11 @@ yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
 
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
