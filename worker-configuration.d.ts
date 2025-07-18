@@ -8,7 +8,7 @@ interface Env {
 	BUCKET: R2Bucket;
 	DB: D1Database;
 	RATE_LIMITER: RateLimit;
-	MYBROWSER: Fetcher;
+	MYBROWSER: any; // Browser binding from wrangler.toml
 	OPENAI_API_KEY: string;
 	ACCOUNT_ID: string;
 }

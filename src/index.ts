@@ -7,11 +7,6 @@ import { getCleanHtml, removeHtmlsFromMessages } from "./utils";
 import { Database } from "./db";
 import { Hono } from "hono";
 import { html } from "hono/html";
-
-
-const app = new Hono<{ Bindings: Env }>();
-
-
 import { 
   DASHBOARD_TEMPLATE, 
   JOB_DETAIL_TEMPLATE, 
@@ -26,6 +21,8 @@ import {
   DASHBOARD_JS, 
   PROGRESS_JS 
 } from "./static-assets";
+
+const app = new Hono<{ Bindings: Env }>();
 
 // Static asset routes
 app.get("/static/css/base.css", (c) => {
