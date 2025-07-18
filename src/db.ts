@@ -78,10 +78,4 @@ export class Database {
   async getAllJobs() {
     return await this.db.select().from(jobs).orderBy(desc(jobs.createdAt)).all();
   }
-
-
-  async getJob(id: number) {
-    return await this.db.select().from(jobs).where(eq(jobs.id, id)).get();
-  }
-
 }
