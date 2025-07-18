@@ -317,6 +317,11 @@ app.get("/", async (c) => {
 // Job detail page
 app.get("/job/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
+  
+  if (isNaN(id)) {
+    return c.html("Invalid job ID", 400);
+  }
+  
   const db = new Database(c.env);
   const job = await db.getJob(id);
   
@@ -493,57 +498,6 @@ app.get("/progress", async (c) => {
   return c.html(htmlContent);
 });
 
-// API routes
-app.post("/api/jobs", async (c) => {
-  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
-  if (!success) {
-    return c.json({ error: "Rate limit exceeded" }, 429);
-  }
-
-
-//   const id = c.env.BROWSER.idFromName("browser");
-//   const obj = c.env.BROWSER.get(id);
-  
-//   // Start the browser job and get the streaming response
-//   const response = await obj.fetch(c.req.raw);
-  
-//   // For the frontend, we need to return job info immediately
-//   // The actual job creation happens in the Browser class
-//   // We'll modify this to extract job ID when available
-  
-//   return new Response(response.body, {
-//     headers: {
-//       "Content-Type": "text/plain",
-//       "Transfer-Encoding": "chunked"
-
-// const handler = {
-//   async fetch(request, env): Promise<Response> {
-//     const { success } = await env.RATE_LIMITER.limit({ key: "/" });
-//     if (!success) {
-//       return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
-
-//     }
-//   });
-// });
-
-app.get("/api/jobs", async (c) => {
-  const db = new Database(c.env);
-  const jobs = await db.getAllJobs();
-  return c.json(jobs);
-});
-
-app.get("/api/jobs/:id", async (c) => {
-  const id = parseInt(c.req.param("id"));
-  const db = new Database(c.env);
-  const job = await db.getJob(id);
-  
-  if (!job) {
-    return c.json({ error: "Job not found" }, 404);
-  }
-  
-  return c.json(job);
-});
-
 // Legacy POST route for backwards compatibility
 app.post("/", async (c) => {
   const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
@@ -602,7 +556,7 @@ const handler = {
       
       if (request.method === 'GET' && path.match(/^\/api\/jobs\/\d+$/)) {
         // Get job status
-        const jobId = parseInt(path.split('/')[3]);
+        const jobId = parseInt(path.split('/')[3], 10);
         const job = await db.getJob(jobId);
 
         
@@ -827,6 +781,11 @@ app.get("/api/jobs", async (c) => {
 
 app.get("/api/jobs/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
+  
+  if (isNaN(id)) {
+    return c.json({ error: "Invalid job ID" }, 400);
+  }
+  
   const db = new Database(c.env);
   const job = await db.getJob(id);
   
@@ -871,6 +830,11 @@ const width = 1920;
 const height = 1080;
 const KEEP_BROWSER_ALIVE_IN_SECONDS = 180;
 
+// Constants for browser execution
+const DEFAULT_PAGE_TIMEOUT_MS = 10000;
+const R2_TIME_ROUNDING_COEFF = 1000 * 60 * 5; // 5 minutes
+const UI_UPDATE_WAIT_MS = 1000;
+
 export class Browser {
   private browser: puppeteer.Browser;
   private keptAliveInSeconds: number;
@@ -893,7 +857,10 @@ export class Browser {
   }
 
   async fetch(request: Request) {
-    const data: { baseUrl?: string; goal?: string; jobId?: number } = await request.json();
+    const data: { baseUrl?: string; goal?: string; jobId?: number } = await request.json().catch((e) => {
+      console.error("Failed to parse request JSON:", e);
+      return {};
+    });
     
     // Check if this is a new API request with jobId
     if (data.jobId) {
@@ -1061,8 +1028,7 @@ export class Browser {
 
       // use the current date and time to create a folder structure for R2
       const nowDate = new Date();
-      const coeff = 1000 * 60 * 5;
-      const roundedDate = new Date(Math.round(nowDate.getTime() / coeff) * coeff).toString();
+      const roundedDate = new Date(Math.round(nowDate.getTime() / R2_TIME_ROUNDING_COEFF) * R2_TIME_ROUNDING_COEFF).toString();
       const folder =
         roundedDate.split(" GMT")[0] + "_" + baseUrl.replace("https://", "").replace("http://", "");
 
@@ -1083,8 +1049,8 @@ export class Browser {
 
       const page = await this.browser.newPage();
       await page.setViewport({ width, height });
-      page.setDefaultNavigationTimeout(10000);
-      page.setDefaultTimeout(10000);
+      page.setDefaultNavigationTimeout(DEFAULT_PAGE_TIMEOUT_MS);
+      page.setDefaultTimeout(DEFAULT_PAGE_TIMEOUT_MS);
       await page.goto(baseUrl);
 
       const initialHtml = await getCleanHtml(page);
@@ -1156,7 +1122,9 @@ export class Browser {
                 await page.select(parsedArg.selector, parsedArg.value);
                 break;
             }
-
+            
+            // Wait a moment for UI to update after actions
+            await page.waitForTimeout(UI_UPDATE_WAIT_MS);
             log(`Action ${functionCall?.name} on ${parsedArg.selector} succeeded`);
 
             messages.push({
@@ -1193,9 +1161,12 @@ export class Browser {
         const TEN_SECONDS = 10 * 1000;
         await this.storage.setAlarm(Date.now() + TEN_SECONDS);
       }
-    } catch (error) {
-      console.error(`Job ${jobId} failed:`, error);
+    } catch (error: any) {
+      console.error(`Job ${jobId} failed catastrophically:`, error);
+      // Include error details in the job record for debugging
+      const errorMessage = `Job failed with error: ${error.message || error}`;
       await this.db.updateJobStatus(jobId, "failed");
+      // TODO: Add method to update job log with error details for better debugging
     }
   }
 
