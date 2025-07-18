@@ -277,9 +277,6 @@ async function submitJob(event) {
   button.textContent = 'Starting...';
   
   try {
-    // Open a progress page immediately
-    const progressWindow = window.open('/progress', '_blank');
-    
     // Submit the job
     const response = await fetch('/api/jobs', {
       method: 'POST',
@@ -290,12 +287,15 @@ async function submitJob(event) {
     });
     
     if (response.ok) {
+      const jobData = await response.json();
+      // Open progress page with the specific job ID
+      window.open('/progress?jobId=' + jobData.jobId, '_blank');
+      
       // Reset form and refresh page
       event.target.reset();
       setTimeout(() => window.location.reload(), 2000);
     } else {
       alert('Failed to create job');
-      if (progressWindow) progressWindow.close();
     }
   } catch (error) {
     alert('Error: ' + error.message);
@@ -318,6 +318,42 @@ const JOB_CREATION_LOOKBEHIND_MS = 120000; // 2 minutes
 const MAX_CHECKS = 60; // ~5 minutes timeout
 let checkCount = 0;
 
+function getJobIdFromUrl() {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get('jobId');
+}
+
+async function checkForSpecificJob(jobId) {
+  try {
+    const response = await fetch('/api/jobs/' + jobId);
+    
+    if (response.ok) {
+      const job = await response.json();
+      // Redirect to the job detail page
+      window.location.href = '/job/' + jobId;
+      return;
+    }
+    
+    checkCount++;
+    if (checkCount < MAX_CHECKS) {
+      setTimeout(() => checkForSpecificJob(jobId), POLLING_INTERVAL_MS);
+    } else {
+      document.getElementById('status').textContent = 'Job creation timed out. Please check the dashboard.';
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 3000);
+    }
+  } catch (error) {
+    console.error('Error checking for job:', error);
+    checkCount++;
+    if (checkCount < MAX_CHECKS) {
+      setTimeout(() => checkForSpecificJob(jobId), POLLING_INTERVAL_MS);
+    } else {
+      document.getElementById('status').textContent = 'An error occurred while checking for the job. Please check the dashboard.';
+    }
+  }
+}
+
 async function checkForLatestJob() {
   try {
     const response = await fetch('/api/jobs');
@@ -330,7 +366,7 @@ async function checkForLatestJob() {
       const timeDiff = now - jobCreated;
       
       // If the latest job was created within the last 2 minutes, redirect to it
-      if (timeDiff < 120000) { // 2 minutes in milliseconds
+      if (timeDiff < JOB_CREATION_LOOKBEHIND_MS) {
         window.location.href = '/job/' + latestJob.id;
         return;
       }
@@ -338,7 +374,7 @@ async function checkForLatestJob() {
     
     checkCount++;
     if (checkCount < MAX_CHECKS) {
-      setTimeout(checkForLatestJob, 5000); // Check every 5 seconds
+      setTimeout(checkForLatestJob, POLLING_INTERVAL_MS);
     } else {
       document.getElementById('status').textContent = 'Job creation timed out. Please check the dashboard.';
       setTimeout(() => {
@@ -349,12 +385,19 @@ async function checkForLatestJob() {
     console.error('Error checking for job:', error);
     checkCount++;
     if (checkCount < MAX_CHECKS) {
-      setTimeout(checkForLatestJob, 5000);
+      setTimeout(checkForLatestJob, POLLING_INTERVAL_MS);
     } else {
       document.getElementById('status').textContent = 'An error occurred while checking for the job. Please check the dashboard.';
     }
   }
 }
 
-// Start checking after a short delay
-setTimeout(checkForLatestJob, 2000);`;
+// Check if we have a specific job ID
+const jobId = getJobIdFromUrl();
+if (jobId) {
+  // Start checking for the specific job after a short delay
+  setTimeout(() => checkForSpecificJob(jobId), 2000);
+} else {
+  // Fallback to checking for latest job
+  setTimeout(checkForLatestJob, 2000);
+}`;
