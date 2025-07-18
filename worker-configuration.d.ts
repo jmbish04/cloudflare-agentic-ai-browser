@@ -8,4 +8,8 @@ interface Env {
 	BUCKET: R2Bucket;
 	DB: D1Database;
 	RATE_LIMITER: RateLimit;
+	OPENAI_API_KEY: string;
+	GEMINI_API_KEY: string;
+	ACCOUNT_ID: string;
+	MYBROWSER: any;
 }

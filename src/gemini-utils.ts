@@ -1,12 +1,7 @@
-import { GenerateContentResult, FunctionCall } from "@google/generative-ai";
+import { GenerateContentResult, FunctionCall, Content } from "@google/generative-ai";
 
-export interface GeminiMessage {
-  role: "user" | "model";
-  parts: Array<{ text?: string; functionCall?: FunctionCall; functionResponse?: any }>;
-}
-
-export function convertOpenAIMessagesToGemini(messages: any[]): GeminiMessage[] {
-  const geminiMessages: GeminiMessage[] = [];
+export function convertOpenAIMessagesToGemini(messages: any[]): Content[] {
+  const geminiMessages: Content[] = [];
   
   for (const message of messages) {
     if (message.role === "system") {

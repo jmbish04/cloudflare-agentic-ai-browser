@@ -14,7 +14,6 @@ import { html } from "hono/html";
 
 const app = new Hono<{ Bindings: Env }>();
 
-
 import { 
   DASHBOARD_TEMPLATE, 
   JOB_DETAIL_TEMPLATE, 
@@ -29,8 +28,6 @@ import {
   DASHBOARD_JS, 
   PROGRESS_JS 
 } from "./static-assets";
-
-const app = new Hono<{ Bindings: Env }>();
 
 // Static asset routes
 app.get("/static/css/base.css", (c) => {
@@ -518,31 +515,31 @@ app.post("/api/jobs", async (c) => {
     return c.json({ error: "Rate limit exceeded" }, 429);
   }
 
-
-//   const id = c.env.BROWSER.idFromName("browser");
-//   const obj = c.env.BROWSER.get(id);
+  const data: { baseUrl?: string; goal?: string; aiProvider?: string } = await c.req.json();
+  const baseUrl = data.baseUrl ?? "https://bubble.io";
+  const goal = data.goal ?? "Extract pricing model for this company";
+  const aiProvider = data.aiProvider ?? "openai";
   
-//   // Start the browser job and get the streaming response
-//   const response = await obj.fetch(c.req.raw);
+  const db = new Database(c.env);
+  const job = await db.insertJob(goal, baseUrl, aiProvider);
   
-//   // For the frontend, we need to return job info immediately
-//   // The actual job creation happens in the Browser class
-//   // We'll modify this to extract job ID when available
+  // Start job execution asynchronously
+  const id = c.env.BROWSER.idFromName("browser");
+  const obj = c.env.BROWSER.get(id);
   
-//   return new Response(response.body, {
-//     headers: {
-//       "Content-Type": "text/plain",
-//       "Transfer-Encoding": "chunked"
-
-// const handler = {
-//   async fetch(request, env): Promise<Response> {
-//     const { success } = await env.RATE_LIMITER.limit({ key: "/" });
-//     if (!success) {
-//       return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
-
-//     }
-//   });
-// });
+  // Don't await this - let it run in the background
+  obj.fetch(new Request(c.req.url, {
+    method: 'POST',
+    body: JSON.stringify({ jobId: job.id, baseUrl, goal, aiProvider }),
+    headers: { 'Content-Type': 'application/json' }
+  }));
+  
+  return c.json({ 
+    jobId: job.id,
+    status: 'pending',
+    createdAt: job.createdAt
+  });
+});
 
 app.get("/api/jobs", async (c) => {
   const db = new Database(c.env);
@@ -582,308 +579,6 @@ app.post("/", async (c) => {
 
 const handler = {
   fetch: app.fetch,
-
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    // Handle API routes
-    if (path.startsWith('/api/jobs')) {
-      const db = new Database(env);
-      
-      if (request.method === 'POST' && path === '/api/jobs') {
-        // Create new job
-        const data: { baseUrl?: string; goal?: string } = await request.json();
-        const baseUrl = data.baseUrl ?? "https://bubble.io";
-        const goal = data.goal ?? "Extract pricing model for this company";
-        
-        const job = await db.insertJob(goal, baseUrl);
-        
-        // Start job execution asynchronously
-        const id = env.BROWSER.idFromName("browser");
-        const obj = env.BROWSER.get(id);
-        
-        // Don't await this - let it run in the background
-        obj.fetch(new Request(request.url, {
-          method: 'POST',
-          body: JSON.stringify({ jobId: job.id, baseUrl, goal }),
-          headers: { 'Content-Type': 'application/json' }
-        }));
-        
-        return new Response(JSON.stringify({ 
-          jobId: job.id,
-          status: 'pending',
-          createdAt: job.createdAt
-        }), {
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-      
-      if (request.method === 'GET' && path.match(/^\/api\/jobs\/\d+$/)) {
-        // Get job status
-        const jobId = parseInt(path.split('/')[3]);
-        const job = await db.getJob(jobId);
-
-        
-        <div class="container">
-          <div class="job-header">
-            <h1>Job #${job.id}</h1>
-            <div>
-              <span class="job-status status-${job.status}">${job.status}</span>
-              ${job.status === 'running' ? html`<button onclick="window.location.reload()" class="refresh-btn">Refresh</button>` : ''}
-            </div>
-          </div>
-          
-          <div class="info-group">
-            <div class="info-label">Goal:</div>
-            <div class="info-value">${job.goal}</div>
-          </div>
-          
-          <div class="info-group">
-            <div class="info-label">Starting URL:</div>
-            <div class="info-value"><a href="${job.startingUrl}" target="_blank">${job.startingUrl}</a></div>
-          </div>
-          
-          <div class="info-group">
-            <div class="info-label">Created:</div>
-            <div class="info-value">${job.createdAt}</div>
-          </div>
-          
-          ${job.completedAt ? html`
-            <div class="info-group">
-              <div class="info-label">Completed:</div>
-              <div class="info-value">${job.completedAt}</div>
-            </div>
-          ` : ''}
-          
-          ${job.output ? html`
-            <div class="info-group">
-              <div class="info-label">Result:</div>
-              <div class="output">${job.output}</div>
-            </div>
-          ` : ''}
-          
-          ${job.log ? html`
-            <div class="info-group">
-              <div class="info-label">Execution Log:</div>
-              <div class="logs">${job.log}</div>
-            </div>
-          ` : ''}
-          
-          ${job.status === 'running' ? html`
-            <div style="margin-top: 20px; padding: 10px; background: #fff3cd; border-radius: 4px; color: #856404;">
-              <strong>Job is running...</strong> This page will auto-refresh every 5 seconds.
-            </div>
-          ` : ''}
-        </div>
-      </body>
-    </html>
-  `);
-});
-
-// Progress page for new jobs
-app.get("/progress", async (c) => {
-  const urlParams = new URL(c.req.url).searchParams;
-  const jobId = urlParams.get('jobId');
-  
-  if (!jobId) {
-    return c.html(`
-      <p>No job ID provided. <a href="/">Return to dashboard</a></p>
-    `, 400);
-  }
-  
-  return c.html(html`
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Job Progress - AI Browser Agent</title>
-        <style>
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f5f5f5;
-          }
-          .container {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            text-align: center;
-          }
-          .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #007acc;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 2s linear infinite;
-            margin: 20px auto;
-          }
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-          .status {
-            color: #666;
-            margin: 10px 0;
-          }
-          .back-link {
-            color: #007acc;
-            text-decoration: none;
-            margin-bottom: 20px;
-            display: inline-block;
-          }
-          .back-link:hover {
-            text-decoration: underline;
-          }
-        </style>
-        <script>
-          const POLLING_INTERVAL_MS = 5000;
-          const MAX_CHECKS = 60; // ~5 minutes timeout
-          const JOB_ID = ${jobId};
-          let checkCount = 0;
-          
-          async function checkJobStatus() {
-            try {
-              const response = await fetch('/api/jobs/' + JOB_ID);
-              
-              if (response.ok) {
-                const job = await response.json();
-                
-                // If job is running or completed, redirect to job page
-                if (job.status === 'running' || job.status === 'completed' || job.status === 'failed') {
-                  window.location.href = '/job/' + JOB_ID;
-                  return;
-                }
-                
-                // Job is still pending, continue polling
-                checkCount++;
-                if (checkCount < MAX_CHECKS) {
-                  setTimeout(checkJobStatus, POLLING_INTERVAL_MS);
-                } else {
-                  document.getElementById('status').textContent = 'Job creation timed out. Please check the dashboard.';
-                  setTimeout(() => {
-                    window.location.href = '/';
-                  }, 3000);
-                }
-              } else {
-                // Job not found, redirect to job page which will show "not found"
-                window.location.href = '/job/' + JOB_ID;
-              }
-            } catch (error) {
-              console.error('Error checking for job:', error);
-              checkCount++;
-              if (checkCount < MAX_CHECKS) {
-                setTimeout(checkJobStatus, POLLING_INTERVAL_MS);
-              } else {
-                document.getElementById('status').textContent = 'An error occurred while checking for the job. Please check the dashboard.';
-                setTimeout(() => {
-                  window.location.href = '/';
-                }, 3000);
-              }
-            }
-          }
-          
-          // Start checking after a short delay
-          setTimeout(checkJobStatus, 2000);
-        </script>
-      </head>
-      <body>
-        <a href="/" class="back-link">← Back to Dashboard</a>
-        
-        <div class="container">
-          <h1>🚀 Starting Browser Agent</h1>
-          <div class="spinner"></div>
-          <div id="status" class="status">Creating job and initializing browser...</div>
-          <p>This page will automatically redirect to the job progress once it's ready.</p>
-        </div>
-      </body>
-    </html>
-  `);
-});
-
-// API routes
-app.post("/api/jobs", async (c) => {
-  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
-  if (!success) {
-    return c.json({ error: "Rate limit exceeded" }, 429);
-  }
-
-  const data: { baseUrl?: string; goal?: string; aiProvider?: string } = await c.req.json();
-  const baseUrl = data.baseUrl ?? "https://bubble.io";
-  const goal = data.goal ?? "Extract pricing model for this company";
-  const aiProvider = data.aiProvider ?? "openai";
-  
-  const db = new Database(c.env);
-  const job = await db.insertJob(goal, baseUrl, aiProvider);
-  
-  // Start job execution asynchronously
-  const id = c.env.BROWSER.idFromName("browser");
-  const obj = c.env.BROWSER.get(id);
-  
-  // Don't await this - let it run in the background
-  obj.fetch(new Request(c.req.url, {
-    method: 'POST',
-    body: JSON.stringify({ jobId: job.id, baseUrl, goal, aiProvider }),
-    headers: { 'Content-Type': 'application/json' }
-  }));
-  
-  return c.json({ 
-    jobId: job.id,
-    status: 'pending',
-    createdAt: job.createdAt
-  });
-});
-
-app.get("/api/jobs", async (c) => {
-  const db = new Database(c.env);
-  const jobs = await db.getAllJobs();
-  return c.json(jobs);
-});
-
-app.get("/api/jobs/:id", async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
-  const db = new Database(c.env);
-  const job = await db.getJob(id);
-  
-  if (!job) {
-    return c.json({ error: "Job not found" }, 404);
-  }
-  
-  return c.json(job);
-});
-
-// Legacy POST route for backwards compatibility
-app.post("/", async (c) => {
-  const { success } = await c.env.RATE_LIMITER.limit({ key: "/" });
-  if (!success) {
-    return new Response(`429 Failure – rate limit exceeded`, { status: 429 });
-  }
-
-  const id = c.env.BROWSER.idFromName("browser");
-  const obj = c.env.BROWSER.get(id);
-
-  const response = await obj.fetch(c.req.raw);
-  const { readable, writable } = new TransformStream();
-  response.body?.pipeTo(writable);
-
-
-  return new Response(readable, response);
-});
-
-const handler = {
-  fetch: app.fetch,
-
-      return new Response(readable, response);
-    }
-    
-    return new Response("Please use POST request or API endpoints", { status: 400 });
-  },
-
-
 } satisfies ExportedHandler<Env>;
 
 const width = 1920;
@@ -1142,39 +837,32 @@ export class Browser {
 
         if (aiProvider === "gemini") {
           const model = this.gemini.getGenerativeModel({ 
-            model: "gemini-pro",
-            tools: [{ functionDeclarations: geminiTools }]
+            model: "gemini-pro"
           });
           
+          // For now, let's use a simpler approach without function calling for Gemini
+          // to get the basic integration working
           const geminiMessages = convertOpenAIMessagesToGemini(messagesSanitized);
-          const chat = model.startChat({
-            history: geminiMessages.slice(0, -1),
+          const lastMessage = geminiMessages[geminiMessages.length - 1];
+          
+          const result = await model.generateContent({
+            contents: geminiMessages
           });
           
-          const result = await chat.sendMessage(geminiMessages[geminiMessages.length - 1]?.parts[0]?.text || "");
+          const response = result.response;
+          const textResponse = response.text();
           
-          // Extract function calls from Gemini response
-          const geminiFunctionCalls = extractGeminiFunctionCalls(result);
-          const textResponse = getGeminiTextResponse(result);
-          
-          // Convert to OpenAI format for compatibility
+          // For now, simulate no function calls to get basic text working
           completion = {
             choices: [{
               message: {
                 content: textResponse,
-                tool_calls: geminiFunctionCalls.map(fc => ({
-                  id: fc.id,
-                  type: "function",
-                  function: {
-                    name: fc.name,
-                    arguments: fc.arguments
-                  }
-                }))
+                tool_calls: []
               }
             }]
           };
           
-          toolCalls = completion.choices[0].message.tool_calls || [];
+          toolCalls = [];
         } else {
           // OpenAI
           completion = await this.openai.chat.completions.create({

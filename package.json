@@ -8,8 +8,8 @@
     "dev": "wrangler dev",
     "start": "wrangler dev",
     "cf-typegen": "wrangler types",
-    "generate": "drizzle-kit generate:sqlite --schema=src/schema.ts",
-    "up": "drizzle-kit up:sqlite --schema=src/schema.ts"
+    "generate": "drizzle-kit generate",
+    "up": "drizzle-kit up"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
